@@ -78,7 +78,7 @@ export function materializeRepeater(id:string,data:RepeaterData,state=initialRep
     const paint=(value:string):string=>value.replace(/^url\(#(.+)\)$/,(_,id:string)=>`url(#${mapped(id)})`);
     for(const w of all){
       w.instance={repeaterId:id,rowId:row.id,templateId:w.id};
-      w.id=mapped(w.id);if(w.menu)w.menu.trigger=mapped(w.menu.trigger);
+      w.id=mapped(w.id);if(w.connection)for(const end of [w.connection.start,w.connection.end])if(end.target)end.target=mapped(end.target);if(w.menu)w.menu.trigger=mapped(w.menu.trigger);
       if(w.tree){w.tree.nodes=w.tree.nodes.map(mapped);if(w.tree.toggleId)w.tree.toggleId=mapped(w.tree.toggleId);if(w.tree.labelId)w.tree.labelId=mapped(w.tree.labelId);}
       if(w.selectionGroup && data.isolateSelectionGroups !== false) w.selectionGroup=prefix+w.selectionGroup;
       for(const s of w.states??[])s.id=mapped(s.id);

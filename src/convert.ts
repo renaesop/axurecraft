@@ -16,7 +16,7 @@ import {flattenWidgets,materializeWidgets} from './repeater-model.ts';
 import { createHash } from 'node:crypto';
 import { type Graph, type Value, parseProject, field, number, str, bool, items, object, prop } from './graph.ts';
 import { P, resolveStyle, resolveStyleDelta, styleProperties, styleToCss, textRunToCss, fillToCss } from './styles.ts';
-import {parseConnector} from './connector.ts';
+import {parseConnector,connectorInfo} from './connector.ts';
 import { parseVector, isCssRectangle } from './vector.ts';
 import { readBehaviors } from './interactions.ts';
 import { repeaterRows } from './repeater.ts';
@@ -238,7 +238,10 @@ export function convertRp9(data:Buffer):Conversion {
         css.background='transparent';css.border='0';
       }else if(type==='Connector'){
         widget.kind='shape';const connector=parseConnector(g,w,props,widget.id);
-        if(connector){const {graphic,...geometry}=connector;Object.assign(widget,geometry);widget.css={...css,background:'transparent',border:'0'};widget.content.push(graphic);}
+        if(connector){
+          const {graphic,...geometry}=connector;Object.assign(widget,geometry);widget.css={...css,background:'transparent',border:'0'};widget.content.push(graphic);widget.connection=connectorInfo(g,w,prefix);
+          for(const side of ['start','end'] as const){const target=widget.connection[side].target;if(target&&!contexts.get(g)?.references?.has(target.slice(prefix.length+2)))issues.push({widget:widget.id,feature:'connector-reference',detail:`Unresolved ${side} node: ${target}`});}
+        }
         else issues.push({widget:widget.id,feature:'connector',detail:'Connector geometry is incomplete'});
       }else if(type==='VectorShape'||type==='Line'){
         widget.kind='shape';

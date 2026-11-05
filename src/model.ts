@@ -246,6 +246,8 @@ export interface RepeaterData {
     templateSource: SourceReference;
 }
 export interface Widget {
+    /** Native connector topology. Geometry remains the authored vector path. */
+    connection?: ConnectorInfo;
     adaptive?:Record<string,import('./adaptive.ts').AdaptivePaint>;
     id: string;
     /** Native class shorthand, retained for compatibility; kind is the UI classification. */
@@ -287,6 +289,12 @@ export interface Widget {
         name: string;
         widgets: Widget[];
     }[];
+}
+export interface ConnectorInfo {
+    routing:'straight'|'orthogonal'|'rounded'|'curve';
+    /** A missing target means a deliberately unattached endpoint, not a guessed node. */
+    start:{target?:string;port?:string};
+    end:{target?:string;port?:string};
 }
 export interface Page {
     adaptive?:import('./adaptive.ts').AdaptiveDefinition;

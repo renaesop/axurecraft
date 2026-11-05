@@ -15,6 +15,39 @@
 
 测试位置：[structure.test.ts](../tests/structure.test.ts)，原创输入：[structure.ts](../tests/fixtures/structure.ts)。这些输入不依赖 Axure 安装和第三方 RP 文件。
 
+## 流程图：四组结构用例
+
+流程图同时检查节点、连线引用和容器层级。连线方向不能只从 SVG 路径反推；生成的 `project.json`、`source/project.ts` 和 React 页面定义均保留 `connection`。节点文字仍是独立的文本片段，修改文案只改变一行 JSX，连接关系保持不变。
+
+| 用例 | 节点 / 连线 | 结构验收 | 绘制验收 |
+| --- | ---: | --- | --- |
+| 顺序流程 | 3 / 2 | 每个端点指向存在的节点 | 水平、垂直线及箭头可见，点击触发对应事件 |
+| 分支与汇合 | 5 / 5 | 1 个分支、1 个汇合，无环 | 直线、折线、圆角折线、曲线及 Yes / No 标签 |
+| 回路与自环 | 3 / 4 | 正确识别有环；节点只声明一次 | 虚线回路、自环曲线、双箭头 |
+| 双泳道 | 4 / 3 | 节点归属两个组，跨组端点可解析 | 泳道层级、跨泳道连接和文字 |
+
+这些用例没有栅格图、画布或嵌入页面。额外的浏览器用例复制两份流程到独立母版实例，验证 SVG 标记 ID 隔离；单元测试检查母版和中继器复制后的端点引用。共 5 页的 HTML / React 整页截图均为 0 个差异像素。
+
+![原创分支流程的转换截图](flow-decision.png)
+
+生成结构中的连接关系示例：
+
+```ts
+connection: {
+  routing: 'orthogonal',
+  start: { target: 'check', port: 'source-port-guid' },
+  end: { target: 'accept', port: 'destination-port-guid' }
+}
+```
+
+端点 `target` 是控件 ID，`port` 是原生连接点身份。未吸附端点允许没有 `target`；引用了不存在节点的端点另列为 `danglingTargets`，旧模型中没有拓扑信息的 Connector 列为 `missingMetadata`。不会根据名称、位置或路径相交猜测连接。
+
+`flowStructure()` 在模板层统计节点、边、分支、汇合、回路和路由类型。节点数只包括被连线引用的控件，不包括孤立图形或泳道背景；面板各状态与中继器模板各遍历一次，报告不是当前可见状态的运行时图。环检测使用入度和队列，连接线不会把输出树递归展开。
+
+4 个用例的组件主体分别为 54 / 119 / 87 / 108 行；回路仍有 7 个 `RpWidget` 声明，对应 3 个节点和 4 条边。泳道的容器与背景单独计入控件，报告会高于业务节点数。代码包含显式 SVG 路径；目前不会自动提炼成业务流程组件。修改端点引用也不会自动重算路径，编辑器的自动布线/拖动吸附尚未实现。
+
+实现：[flow.ts](../src/flow.ts)，原创输入：[flow.ts](../tests/fixtures/flow.ts)，结构断言：[flow.test.ts](../tests/flow.test.ts)，浏览器检查：[validate-flow.ts](../scripts/validate-flow.ts)。官方 Flow 元件库与 RP9 Tour 的研究结果见[控件审查](control-review.md#流程图与连接关系)。这些结果尚不能证明与原生 Axure 流程图截图等价。
+
 ## 已找到并消除的重复
 
 中继器原先在模板、数据以外，还将所有展开行的控件状态写入页面定义。React 运行时本来就能根据模板构造这些状态，因此删除导出时的重复副本，在首次挂载时计算初始禁用和选中状态。
@@ -29,7 +62,8 @@
 ## 运行方法
 
 ```bash
-# 自带六组结构用例，输出 output/structure-audit.json
+# 六组基础结构用例 + 四组流程图 + 1000 行中继器
+# 输出 output/structure-audit.json
 npm run audit:structure
 
 # 检查任意已经转换的语义项目
@@ -38,9 +72,10 @@ npm run audit:structure -- output/my-project/project.json output/my-structure.js
 # 结构断言与富文本交互 / 截图检查
 npm test
 npm run test:rich-text
+npm run test:flow
 ```
 
-报告包含语义数据字节数、完整 TSX 字节数、组件主体字节/行数、控件声明数、模板数、重复行元数据、缩进深度和不透明 HTML 注入检查。GitHub Actions 执行结构断言，并保存报告和富文本截图。
+报告包含语义数据字节数、完整 TSX 字节数、组件主体字节/行数、控件声明数、模板数、重复行元数据、缩进深度和不透明 HTML 注入检查；有连接线的页面另附拓扑报告。GitHub Actions 执行结构断言，并保存报告、富文本及流程图截图。
 
 ## 富文本的可编辑形式
 
@@ -68,4 +103,4 @@ npm run test:rich-text
 
 表达式结果按文字渲染，HTML 特殊字符保持原值。转换层负责解析原生 `RichTextLiteral`，执行层求值，HTML/React 共用段落与片段结构。跨片段公式、母版/中继器引用和快照预览也走同一语义模型。
 
-后续仍应增加重复母版的组件复用、复杂自适应外观、深层容器和多人编辑任务的评估。当前六组用例没有证明业务组件已经自动抽象完成。
+后续仍应增加重复母版的组件复用、复杂自适应外观、深层容器和多人编辑任务的评估。当前用例没有证明业务组件已经自动抽象完成。

@@ -81,7 +81,7 @@
 | DynamicPanel | 多状态、表达式状态、定时重复/停止、状态尺寸推拉、固定定位/全宽、灯箱/浮出层 | 并发动画队列和更多原生时序对照 |
 | Repeater | 模板、数据绑定、排序、分页、筛选/增删改/标记、条件加载、行号及跨中继器赋值 | 嵌套中继器及完整加载/刷新时序 |
 | ImageMapRegion | 透明命中区域、鼠标/键盘/滑动/拖动事件 | 更复杂的手势和移动轨迹 |
-| Connector | 专属 segments / control-points、曲线和圆角折线 | 原生截图、编辑器自动路由/箭头精度 |
+| Connector | 专属 segments / control-points、曲线和圆角折线、端点/连接点身份、实例引用映射；双渲染器截图及线条点击 | 原生截图、编辑器自动路由/箭头精度 |
 | Hyperlink | 嵌套文字/格式、独立链接事件与键盘激活 | 跨多个文字段落链接的原生对照 |
 | TreeNodeObject | 节点结构、嵌套展开折叠、重排、展开图标和标签选中 | 更多节点图标/键盘操作及原生截图 |
 | InlineFrame | 初始目标、滚动/边框、框架导航 | 跨域框架行为原生对照 |
@@ -100,10 +100,23 @@ Line / Button / DropList 等兼容分支与上述对象的专属行为仍需补�
 - 另取得两个真实 RP9 文件：[button styling](https://forum.axure.com/t/button-design-icon-and-text-on-button/68105)、[Color Test](https://forum.axure.com/t/unable-to-change-text-color-when-button-clicked/63362)。均零转换诊断，动态赋值与样式在两个渲染器中通过。Color Test 整页差异 0；button styling 的一次捕获有 556 个差异像素，全部落在两处动画 GIF 加载图标，富文本区域无差异。这是两个转换渲染器的比较，尚无这两个文件配对的原生导出 HTML。
 - 新增六组[结构用例](structure-review.md)，消除 React 导出中重复的中继器行状态。1000 行用例的 TSX 从 782,498 字节降到 178,001 字节；模板主体不随行数增长。初始选中和禁用状态由运行时构造，并有浏览器回归。
 
+## 流程图与连接关系
+
+- 原生 `start/end-diagram-object` 按所在记录的 GUID 表解析，`start/end-connector-id` 保留连接点身份；连接点不是独立 DiagramObject，不能按对象记录查找。母版、中继器与快照复制时重映射端点控件引用，连接点 GUID 保持原值。
+- 修复水平/垂直连接线外框宽或高为 0 时 SVG 不绘制的问题，保留原有几何并给 SVG 最小绘制尺寸。浏览器按实际像素和点击位置验收，关闭这条修复的负对照会让线条消失。
+- 圆角折线只在真正转向的中间点画圆弧；共线段不再产生额外圆弧。隐藏描边不再留下箭头。
+- 新增顺序、分支汇合、回路自环、双泳道 4 组[结构用例](structure-review.md#流程图四组结构用例)，另有重复母版浏览器用例。5 页在两个渲染器中截图差异均为 0，检查线条可见性、点击、路径、唯一 SVG 标记和无悬空引用。公开测试增至 74 项，本地语料仍为 41 项，共 115 项。
+- 官方 `Flow.rplib` 含 37 个条目、38 个展开控件，没有 Connector 对象；它用于检查图形符号，不作为连线覆盖证据。仍有 1 个缺失 Image Stream 诊断。官方 `RP9 Tour.rp` 的 5 条真实连接线（4 条曲线、1 条圆角折线）保留全部起止节点与连接点，整体转换零诊断；这两个输入另在 HTML / React 浏览器中检查。
+- 现有实现保持保存时的路径，不提供编辑器自动布线、移动节点后的自动重连或业务流程执行引擎。流程图尚缺同文件原生导出 HTML 的配对截图；双渲染器一致不能代替该验证。
+
+原生能力参考官方[流程图](https://docs.axure.com/axure-rp/reference/flow-diagrams/)与[连接线](https://docs.axure.com/axure-rp/reference/connectors/)文档。第三方库的图形保存为受支持对象时沿用同一转换路径，未逐库验证。
+
 ## 可复现检查
 
 ```bash
 npm run test:tables
+npm run test:flow
+npm run audit:structure
 npm run audit:controls -- output/control-audit.json project.rp library.rplib
 ```
 

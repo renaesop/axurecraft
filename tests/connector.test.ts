@@ -12,3 +12,11 @@ test('vertical connectors retain a nonzero SVG viewport and round only intermedi
  const g={objects:new Map([[1,{tag:9,body:value({'to-x':140,'to-y':200})}],[2,{tag:9,body:value({'to-x':140,'to-y':240})}]])} as unknown as Graph;
  const curve=parseConnector(g,{tag:9,body:value({'end-point-x':140,'end-point-y':240,'connector-type':0,segments:[1,2]})},props,'round')!;assert.equal(curve.graphic.paths[0].data,'M 0 0 L 35 0 A 5 5 0 0 1 40 5 L 40 40');
 });
+
+test('rounded connector collinear segments stay straight and hidden strokes have no arrowheads',()=>{
+ const g={objects:new Map([[1,{tag:9,body:value({'to-x':140,'to-y':200})}]])} as unknown as Graph;
+ const w:Value={tag:9,body:value({'end-point-x':180,'end-point-y':200,'connector-type':0,segments:[1]})};
+ assert.equal(parseConnector(g,w,props,'flat')!.graphic.paths[0].data,'M 0 0 L 40 0 L 80 0');
+ const hidden=new Map([...props,[16,value(9)],[17,value({Start:3,End:3})]]);assert.deepEqual(parseConnector(g,w,hidden,'hidden')!.graphic.markers,[]);
+ assert.equal(parseConnector(g,{...w,body:value({'end-point-x':180,'end-point-y':200,'connector-type':99})},props,'unknown'),undefined);
+});

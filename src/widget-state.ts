@@ -13,6 +13,7 @@ export function appearanceVariant(variants:Partial<Record<Exclude<AppearanceVari
 
 /** Rendering metadata. It is derived from Project, not part of editable content. */
 export interface WidgetStateDefinition {
+  connection?:Widget['connection'];
   id: string;
   adaptive?:Widget['adaptive'];
   geometry?: Geometry;
@@ -48,7 +49,7 @@ function selectionControl(widget:Widget):'checkbox'|'radio'|undefined {
 
 export function describeWidgets(widgets: Widget[]): WidgetStateDefinition[] {
   return flattenWidgets(widgets).map(w => ({
-    id: w.id, adaptive:w.adaptive, kind: w.kind,propagateStyles:w.propagateStyles,tree:w.tree,menu:w.menu,fixed:!!w.panel?.fixed,instance:w.instance,
+    id: w.id, connection:w.connection, adaptive:w.adaptive, kind: w.kind,propagateStyles:w.propagateStyles,tree:w.tree,menu:w.menu,fixed:!!w.panel?.fixed,instance:w.instance,
     imageAssets:w.kind==='image'?{normal:w.content.find(c=>c.kind==='image')?.asset,...Object.fromEntries(Object.entries(w.variants??{}).flatMap(([key,v])=>{const image=v.content?.find(c=>c.kind==='image');return image?[[key,image.asset]]:[];}))}:undefined, visible: w.css.display !== 'none',
     geometry:{x:w.x,y:w.y,width:w.width,height:w.height,rotation:parseFloat(/rotate\(([-.\d]+)/.exec(w.css.transform??'')?.[1]??'0')},
     selectionControl: selectionControl(w),

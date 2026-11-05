@@ -5,10 +5,10 @@ import type {Geometry} from './motion.ts';
 const supportsDisabled = (kind: Widget['kind']): boolean => ['group', 'panel', 'shape', 'image', 'control'].includes(kind);
 
 type ResolvedAppearance = WidgetAppearance & {content:WidgetContent[]};
-export type AppearanceVariant = 'normal' | 'disabled' | 'selected';
+export type AppearanceVariant = 'normal' | 'disabled' | 'selected' | 'hover' | 'pressed';
 /** RP9 applies a disabled style independently of selected; absent disabled styles retain selection paint. */
-export function appearanceVariant(variants:{disabled?:unknown;selected?:unknown}|undefined,state:{disabled?:boolean;selected?:boolean;selectedPaint?:boolean}):AppearanceVariant {
-  return state.disabled&&variants?.disabled?'disabled':(state.selectedPaint??state.selected)&&variants?.selected?'selected':'normal';
+export function appearanceVariant(variants:Partial<Record<Exclude<AppearanceVariant,'normal'>,unknown>>|undefined,state:{disabled?:boolean;selected?:boolean;selectedPaint?:boolean;hovered?:boolean;pressed?:boolean}):AppearanceVariant {
+  return state.disabled&&variants?.disabled?'disabled':(state.selectedPaint??state.selected)&&variants?.selected?'selected':!state.disabled&&state.pressed&&variants?.pressed?'pressed':!state.disabled&&state.hovered&&variants?.hover?'hover':'normal';
 }
 
 /** Rendering metadata. It is derived from Project, not part of editable content. */
@@ -17,6 +17,7 @@ export interface WidgetStateDefinition {
   adaptive?:Widget['adaptive'];
   geometry?: Geometry;
   fixed?:boolean;
+  propagateStyles?:boolean;
   instance?:Widget['instance'];
   tree?:Widget['tree'];
   menu?:Widget['menu'];
@@ -37,7 +38,7 @@ export interface WidgetStateDefinition {
   percentWidth?:boolean;
   behaviors: Behavior[];
   rowInstance: boolean;
-  appearance?: {normal:ResolvedAppearance;disabled?:ResolvedAppearance;selected?:ResolvedAppearance};
+  appearance?: {normal:ResolvedAppearance}&Partial<Record<Exclude<AppearanceVariant,'normal'>,ResolvedAppearance>>;
 }
 
 function selectionControl(widget:Widget):'checkbox'|'radio'|undefined {
@@ -47,7 +48,7 @@ function selectionControl(widget:Widget):'checkbox'|'radio'|undefined {
 
 export function describeWidgets(widgets: Widget[]): WidgetStateDefinition[] {
   return flattenWidgets(widgets).map(w => ({
-    id: w.id, adaptive:w.adaptive, kind: w.kind,tree:w.tree,menu:w.menu,fixed:!!w.panel?.fixed,instance:w.instance,
+    id: w.id, adaptive:w.adaptive, kind: w.kind,propagateStyles:w.propagateStyles,tree:w.tree,menu:w.menu,fixed:!!w.panel?.fixed,instance:w.instance,
     imageAssets:w.kind==='image'?{normal:w.content.find(c=>c.kind==='image')?.asset,...Object.fromEntries(Object.entries(w.variants??{}).flatMap(([key,v])=>{const image=v.content?.find(c=>c.kind==='image');return image?[[key,image.asset]]:[];}))}:undefined, visible: w.css.display !== 'none',
     geometry:{x:w.x,y:w.y,width:w.width,height:w.height,rotation:parseFloat(/rotate\(([-.\d]+)/.exec(w.css.transform??'')?.[1]??'0')},
     selectionControl: selectionControl(w),

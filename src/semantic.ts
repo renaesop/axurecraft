@@ -128,14 +128,15 @@ export function parseSemanticProject(json:string):Project {
       if(Number(w.width)<0||Number(w.height)<0)fail(p,'nonnegative size');
       if(!['group','shape','image','hotspot','panel','repeater','table','menu','frame','tree','control','unsupported'].includes(string(w.kind,p+'.kind')))fail(p+'.kind','semantic widget kind');
       css(w.css,p+'.css');source(w.source,p+'.source');behaviors(w.behaviors,p+'.behaviors');array(w.content,p+'.content').forEach((c,j)=>content(c,p+'.content.'+j));
-      if(w.adaptive!==undefined)for(const [id,value]of Object.entries(object(w.adaptive,p+'.adaptive'))){const a=object(value,p+'.adaptive.'+id);for(const key of ['x','y','width','height'])number(a[key],p+'.adaptive.'+key);css(a.css,p+'.adaptive.css');array(a.content,p+'.adaptive.content').forEach((v,i)=>content(v,p+'.adaptive.content.'+i));if(a.variants!==undefined)for(const [key,v]of Object.entries(object(a.variants,p+'.adaptive.variants'))){if(!['selected','disabled'].includes(key))fail(p+'.adaptive.variants','appearance state');const variant=object(v,p+'.adaptive.variant');css(variant.css,p+'.adaptive.variant.css');if(variant.content!==undefined)array(variant.content,p+'.adaptive.variant.content').forEach((v,i)=>content(v,p+'.adaptive.variant.content.'+i));}}
+      if(w.adaptive!==undefined)for(const [id,value]of Object.entries(object(w.adaptive,p+'.adaptive'))){const a=object(value,p+'.adaptive.'+id);for(const key of ['x','y','width','height'])number(a[key],p+'.adaptive.'+key);css(a.css,p+'.adaptive.css');array(a.content,p+'.adaptive.content').forEach((v,i)=>content(v,p+'.adaptive.content.'+i));if(a.variants!==undefined)for(const [key,v]of Object.entries(object(a.variants,p+'.adaptive.variants'))){if(!['selected','disabled','hover','pressed'].includes(key))fail(p+'.adaptive.variants','appearance state');const variant=object(v,p+'.adaptive.variant');css(variant.css,p+'.adaptive.variant.css');if(variant.content!==undefined)array(variant.content,p+'.adaptive.variant.content').forEach((v,i)=>content(v,p+'.adaptive.variant.content.'+i));}}
       if(w.disabled!==undefined)boolean(w.disabled,p+'.disabled');
+      if(w.propagateStyles!==undefined)boolean(w.propagateStyles,p+'.propagateStyles');
       if(w.selected!==undefined)boolean(w.selected,p+'.selected');
       if(w.selectionGroup!==undefined)string(w.selectionGroup,p+'.selectionGroup');
       if(w.variants!==undefined){
         const variants=object(w.variants,p+'.variants');
         for(const [name,value]of Object.entries(variants)){
-          if(!['disabled','selected'].includes(name))fail(p+'.variants.'+name,'supported appearance variant');
+          if(!['disabled','selected','hover','pressed'].includes(name))fail(p+'.variants.'+name,'supported appearance variant');
           const appearance=object(value,p+'.variants.'+name);css(appearance.css,p+'.variants.'+name+'.css');
           if(appearance.content!==undefined)array(appearance.content,p+'.variants.'+name+'.content').forEach((c,j)=>content(c,p+'.variants.'+name+'.content.'+j));
         }

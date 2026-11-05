@@ -134,10 +134,10 @@ export function convertRp9(data:Buffer):Conversion {
       const selectedStyle=object(g,field(props.get(P.IX_STYLES),'Selected'));
       const selectionGroup=str(field(w.body,'SelectedStyleGroup'));
       if(selectionGroup)widget.selectionGroup=prefix+selectionGroup;
-      const disabledStyle=object(g,field(props.get(P.IX_STYLES),'Disabled'));
+      const disabledStyle=object(g,field(props.get(P.IX_STYLES),'Disabled')),hoverStyle=object(g,field(props.get(P.IX_STYLES),'MouseOver')),pressedStyle=object(g,field(props.get(P.IX_STYLES),'MouseDown'));
       widgetCount++;
       if(type==='Layer'){
-        widget.kind='group';
+        widget.kind='group';widget.propagateStyles=bool(field(w.body,'Propagate'));
         // A group has no painted background/border or inherited text style.
         widget.css=css.display==='none'?{display:'none'}:{};
         groupMembers.set(widget.id,items(field(w.body,'DiagramObjects')).map(ref=>{
@@ -145,8 +145,8 @@ export function convertRp9(data:Buffer):Conversion {
           if(!member)throw new Error(`Unresolved group member in record ${g.record.index}, group ${w.id}`);
           return prefix+idFor(g,member);
         }));
-        if(number(props.get(P.ROTATION))||number(props.get(P.OPACITY),1)!==1||bool(field(w.body,'Propagate'))){
-          issues.push({widget:widget.id,feature:'group-style',detail:'Group rotation, opacity or propagated interaction styles require native verification; child geometry and styles retained'});
+        if(number(props.get(P.ROTATION))||number(props.get(P.OPACITY),1)!==1){
+          issues.push({widget:widget.id,feature:'group-style',detail:'Group rotation or opacity require native verification; child geometry and styles retained'});
         }
       }else if(type==='Screenshot'){
         widget.kind='shape';
@@ -258,7 +258,7 @@ export function convertRp9(data:Buffer):Conversion {
       }else if(type==='DynamicPanel'){
         widget.panel={percentWidth:bool(field(w.body,'is-percent-width')),fitToContent:bool(field(w.body,'fit-to-content'))};
         if(bool(field(w.body,'is-fixed')))widget.panel.fixed={horizontal:(['left','center','right'] as const)[number(field(w.body,'horizontal-pin-alignment'))]??'left',vertical:(['top','center','bottom'] as const)[number(field(w.body,'vertical-pin-alignment'))]??'top',marginX:number(field(w.body,'horizontal-pin-margin')),marginY:number(field(w.body,'vertical-pin-margin')),keepInFront:bool(field(w.body,'keep-pinned-in-front'))};
-        if(bool(field(w.body,'propagate-styles')))issues.push({widget:widget.id,feature:'panel-style-propagation',detail:'Panel interaction style propagation is not implemented'});
+        widget.propagateStyles=bool(field(w.body,'propagate-styles'));
         widget.kind='panel';panelCount++;css.background='transparent';css.border='0';css['overflow-x']=[1,3].includes(number(field(w.body,'scrollbars')))?'auto':'hidden';css['overflow-y']=[1,2].includes(number(field(w.body,'scrollbars')))?'auto':'hidden';
         widget.states=[];
         for(const ref of items(field(w.body,'panel-diagrams'))){
@@ -334,12 +334,12 @@ export function convertRp9(data:Buffer):Conversion {
         const text=richText(w,props,undefined,textOverrides,g);if(text)widget.content.push(text);
         issues.push({widget:widget.id,feature:'widget-type',detail:`Unsupported widget ${type}`});
       }
-      for(const [variant,variantStyle]of [['disabled',disabledStyle],['selected',selectedStyle]] as const){
+      for(const [variant,variantStyle]of [['disabled',disabledStyle],['selected',selectedStyle],['hover',hoverStyle],['pressed',pressedStyle]] as const){
         if(!variantStyle||!styleProperties(variantStyle,true).size)continue;
         if(!['shape','image','control'].includes(widget.kind)){
           issues.push({widget:widget.id,feature:variant+'-appearance',detail:`${variant} appearance for this container/widget kind requires native verification`});
         }else{
-          const delta=resolveStyleDelta(g,variantStyle,doc),merged=new Map([...props,...delta]);
+          const delta=new Map([...(variant==='pressed'&&hoverStyle?resolveStyleDelta(g,hoverStyle,doc):[]),...resolveStyleDelta(g,variantStyle,doc)]),merged=new Map([...props,...delta]);
           const appearanceCss=styleToCss(merged);
           for(const key of Object.keys(appearanceCss))if(key.startsWith('padding')||key==='justify-content'||key==='display')delete appearanceCss[key];
           const content=structuredClone(widget.content);

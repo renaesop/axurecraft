@@ -40,7 +40,8 @@ function widgetJsx(w:Widget,level:number,ref?:string):string {
   const indent='  '.repeat(level),id=ref?`${ref}.id`:json(w.id);
   const disabledStyle=w.variants?.disabled?` disabledStyle={${ref?`widgetDisabledCss(${ref})`:json(reactStyle(w.variants.disabled.css))}}`:'';
   const selectedStyle=w.variants?.selected?` selectedStyle={${ref?`widgetSelectedCss(${ref})`:json(reactStyle(w.variants.selected.css))}}`:'';
-  const props=`${w.menu?`menu={${ref?`${ref}.menu`:json(w.menu)}} `:''}${w.tree?`tree={${ref?`${ref}.tree`:json(w.tree)}} `:''}id={${id}} type={${json(w.type)}} name={${json(w.name)}} style={${ref?`widgetCss(${ref})`:json(reactStyle(widgetStyle(w)))}}${disabledStyle}${selectedStyle} behaviors={${ref?`${ref}.behaviors`:json(w.behaviors)}}`;
+  const pointerStyle=w.variants?.hover||w.variants?.pressed?` pointerStyles={${ref?`widgetPointerCss(${ref})`:json(Object.fromEntries(Object.entries(w.variants).filter(([key])=>key==='hover'||key==='pressed').map(([key,v])=>[key,reactStyle(v.css)])))}}`:'';
+  const props=`${w.propagateStyles?'propagateStyles={true} ':''}${w.menu?`menu={${ref?`${ref}.menu`:json(w.menu)}} `:''}${w.tree?`tree={${ref?`${ref}.tree`:json(w.tree)}} `:''}id={${id}} type={${json(w.type)}} name={${json(w.name)}} style={${ref?`widgetCss(${ref})`:json(reactStyle(widgetStyle(w)))}}${disabledStyle}${selectedStyle}${pointerStyle} behaviors={${ref?`${ref}.behaviors`:json(w.behaviors)}}`;
   const paints=Object.entries(w.variants??{}).filter(([,value])=>value.content);
   const content=w.adaptive&&!ref?[`${indent}  <RpContent ownerId={${id}} content={${json(w.content)}} variants={${json(w.variants)}} />`]:ref?[`${indent}  <RpContent ownerId={${id}} content={${ref}.content} variants={${ref}.variants} />`]:paints.length?[
     `${indent}  <RpAppearance ownerId={${id}} variants={${json(Object.keys(w.variants!))}}>{(variant) =>`,
@@ -76,7 +77,7 @@ export function pageDefinition(page:Page,variables:GlobalVariable[]=[]):PageDefi
 export function pageToJsx(page:Page,componentName='Prototype',variables:GlobalVariable[]=[]):string {
   page={...page,widgets:materializeTables(page.widgets)};
   if(!/^[A-Z][A-Za-z0-9_]*$/.test(componentName))throw new Error('Invalid component name');
-  return `import { PrototypePage, RpWidget, RpState, RpControl, RpText, RpLink, RpImage, RpImageFrame, RpRepeater, RpContent, RpAppearance, widgetCss, widgetDisabledCss, widgetSelectedCss } from './runtime';\n\nconst definition = ${JSON.stringify(pageDefinition(page,variables),null,2)};\n\nexport default function ${componentName}() {\n  return (\n    <PrototypePage definition={definition}>\n${page.widgets.map(w=>widgetJsx(w,3)).join('\n')}\n    </PrototypePage>\n  );\n}\n`;
+  return `import { PrototypePage, RpWidget, RpState, RpControl, RpText, RpLink, RpImage, RpImageFrame, RpRepeater, RpContent, RpAppearance, widgetCss, widgetDisabledCss, widgetSelectedCss, widgetPointerCss } from './runtime';\n\nconst definition = ${JSON.stringify(pageDefinition(page,variables),null,2)};\n\nexport default function ${componentName}() {\n  return (\n    <PrototypePage definition={definition}>\n${page.widgets.map(w=>widgetJsx(w,3)).join('\n')}\n    </PrototypePage>\n  );\n}\n`;
 }
 /** Both .jsx and .tsx exports are compiled from the same semantic project. */
 export async function writeReactProject(project:Project,assets:Map<string,Buffer>,output:string):Promise<void> {
@@ -88,7 +89,7 @@ export async function writeReactProject(project:Project,assets:Map<string,Buffer
   }
   const src=fileURLToPath(new URL('.',import.meta.url));
   copyFileSync(join(src,'react-runtime.tsx'),join(source,'runtime.tsx'));copyFileSync(join(src,'model.ts'),join(source,'model.ts'));
-  for(const file of ['menu.ts','popups.ts','input-events.ts','adaptive.ts','compression.ts','images.ts','groups.ts','expression-methods.ts','tree.ts','repeater-actions.ts','panel.ts','transition.ts','motion.ts','navigation.ts','controls.ts','table.ts','repeater-model.ts','react-props.ts','render-tree.ts','widget-state.ts','expression.ts','behavior-runtime.ts','widget-dom.ts','selection.ts','variables.ts','page-layout.ts'])copyFileSync(join(src,file),join(source,file));
+  for(const file of ['pointer.ts','menu.ts','popups.ts','input-events.ts','adaptive.ts','compression.ts','images.ts','groups.ts','expression-methods.ts','tree.ts','repeater-actions.ts','panel.ts','transition.ts','motion.ts','navigation.ts','controls.ts','table.ts','repeater-model.ts','react-props.ts','render-tree.ts','widget-state.ts','expression.ts','behavior-runtime.ts','widget-dom.ts','selection.ts','variables.ts','page-layout.ts'])copyFileSync(join(src,file),join(source,file));
   const entry=project.pages.map((_,i)=>`import Page${i+1} from './Page${i+1}.jsx';`).join('\n')+`\nimport {createRoot} from 'react-dom/client';\nconst pages={${project.pages.map((p,i)=>`${json(p.file)}:Page${i+1}`).join(',')}};\nconst Page=pages[decodeURIComponent(location.pathname.split('/').pop())]??Page1;\ncreateRoot(document.getElementById('root')).render(<Page/>);\n`;
   writeFileSync(join(source,'main.jsx'),entry);
   const req=createRequire(import.meta.url);

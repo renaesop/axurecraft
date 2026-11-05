@@ -1,8 +1,8 @@
-import type {Css,WidgetContent,WidgetAppearance} from './model.ts';
+import type {Css,WidgetContent,Widget} from './model.ts';
 export interface AdaptiveView {id:string;name:string;width:number;height:number;parent?:string}
 export interface AdaptiveLayout {width:number;height:number;contentLeft?:number;alignment?:'left'|'center';background:string}
 export interface AdaptiveDefinition {defaultId:string;views:AdaptiveView[];layouts:Record<string,AdaptiveLayout>}
-export interface AdaptivePaint {x:number;y:number;width:number;height:number;css:Css;content:WidgetContent[];variants?:{selected?:WidgetAppearance;disabled?:WidgetAppearance}}
+export interface AdaptivePaint {x:number;y:number;width:number;height:number;css:Css;content:WidgetContent[];variants?:Widget['variants']}
 /** RP9 chooses the largest fitting width, with height breaking equal-width ties. */
 export function chooseAdaptiveView(definition:Pick<AdaptiveDefinition,'defaultId'|'views'>,width:number,height:number):string {
  const base=definition.views.find(v=>v.id===definition.defaultId)??definition.views[0];if(!base)return definition.defaultId;

@@ -1,3 +1,4 @@
+import {pointerTargets} from './pointer.ts';
 import {bindSubmenu} from './menu.ts';
 import {openFlyout,closeFlyout,backdropStyle} from './popups.ts';
 import {bindSyntheticEvents,syntheticEvents,eventValues,type EventValues} from './input-events.ts';
@@ -33,12 +34,12 @@ const disabled:Record<string,boolean>={};
 const selected:Record<string,boolean>={};
 const assignedText:Record<string,string>={};
 const imageOverrides:Record<string,Partial<Record<ImageState,string>>>={};
-const imagePointer:Record<string,{hovered?:boolean;pressed?:boolean}>={};
+const pointerState:Record<string,{hovered?:boolean;pressed?:boolean}>={};
 function applyImage(id:string):void {
  const widget=document.getElementById(id),definition=widgets.find(w=>w.id===id);if(!widget||!definition?.imageAssets)return;
  const adaptiveContent=definition.adaptive?.[activeView],variant=appearanceVariant(adaptiveContent?.variants,{disabled:disabled[id],selected:selected[id]}),imageContent=(variant==='normal'?undefined:adaptiveContent?.variants?.[variant]?.content)??adaptiveContent?.content;
  const base=imageContent?{...definition.imageAssets,normal:imageContent.find(c=>c.kind==='image')?.asset}:definition.imageAssets;
- const state={disabled:disabled[id],selected:selected[id],...imagePointer[id]},asset=currentImage(base,imageOverrides[id],state);
+ const state={disabled:disabled[id],selected:selected[id],...pointerState[id]},asset=currentImage(base,imageOverrides[id],state);
  for(const el of widget.querySelectorAll('img.rp-image,svg.rp-framed-image'))if(el.closest('.rp-widget')===widget){const image=el.localName==='svg'?el.querySelector('image'):el;if(image){const attr=image.localName==='image'?'href':'src';if(asset)image.setAttribute(attr,asset);else image.removeAttribute(attr);}el.toggleAttribute('hidden',!asset);}
 }
 const expanded:Record<string,boolean>={};
@@ -48,7 +49,7 @@ function applyAppearance(id:string):void {
   const definition=widgets.find(w=>w.id===id),paint=definition?.adaptive?.[activeView];
   const appearance=paint?{normal:{css:paint.css,content:paint.content},...Object.fromEntries(Object.entries(paint.variants??{}).map(([key,v])=>[key,{css:{...paint.css,...v.css},content:v.content??paint.content}]))}:definition?.appearance;
   if(appearance){
-    const current=appearance[appearanceVariant(appearance,{disabled:disabled[id],selected:selected[id]})]??appearance.normal;
+    const current=appearance[appearanceVariant(appearance,{disabled:disabled[id],selected:selected[id],...pointerState[id]})]??appearance.normal;
     const keys=new Set(Object.values(appearance).flatMap(value=>Object.keys(value.css)));
     for(const key of keys){
       if(['position','left','top','width','height','display'].includes(key)||geometry[id]&&['transform','transform-origin'].includes(key))continue;
@@ -103,7 +104,7 @@ function refreshRepeater(id:string):void {
   target.replaceChildren(...rows.map(w=>createNode(widgetElement(w))));
   const rowDefinitions=describeWidgets(rows);
   widgets=widgets.flatMap(w=>w.id.startsWith(id+'-row')?[]:[w,...(w.id===id?rowDefinitions:[])]);
-  for(const key of Object.keys(disabled))if(key.startsWith(id+'-row')){delete disabled[key];delete assignedText[key];delete selected[key];delete imageOverrides[key];delete imagePointer[key];}
+  for(const key of Object.keys(disabled))if(key.startsWith(id+'-row')){delete disabled[key];delete assignedText[key];delete selected[key];delete imageOverrides[key];delete pointerState[key];}
   for(const key of Object.keys(geometry))if(key.startsWith(id+'-row'))delete geometry[key];
   initializeWidgets(rowDefinitions);applyAdaptive();
   for(const w of flattenWidgets(rows))bind(w.id,w.behaviors,true);
@@ -170,7 +171,7 @@ function bind(id:string,list:Behavior[],row=false):void {
   const menu=widgets.find(w=>w.id===id)?.menu;if(menu)bindSubmenu(id,menu.trigger,actions=>void run(actions));
   const el=id==='$page'?document.body:document.getElementById(id);if(!el)return;
   if(list.some(b=>(syntheticEvents as readonly string[]).includes(b.event)))bindSyntheticEvents(el,list.map(b=>b.event),(name,values)=>{for(const b of list)if(b.event===name)void run(b.actions,0,values);},()=>!!disabled[id]);
-  if(widgets.find(w=>w.id===id)?.imageAssets)for(const [name,key,value]of [['mouseenter','hovered',true],['mouseleave','hovered',false],['mousedown','pressed',true],['mouseup','pressed',false]] as const)el.addEventListener(name,()=>{imagePointer[id]={...imagePointer[id],[key]:value,...(name==='mouseleave'?{pressed:false}:{})};applyImage(id);});
+  if(widgets.find(w=>w.id===id)?.imageAssets||widgets.find(w=>w.id===id)?.propagateStyles||widgets.find(w=>w.id===id)?.appearance||widgets.find(w=>w.id===id)?.adaptive)for(const [name,key,value]of [['mouseenter','hovered',true],['mouseleave','hovered',false],['mousedown','pressed',true],['mouseup','pressed',false]] as const)el.addEventListener(name,()=>{for(const target of pointerTargets(widgets,id)){pointerState[target]={...pointerState[target],[key]:value,...(name==='mouseleave'?{pressed:false}:{})};applyAppearance(target);}});
   el.addEventListener('input',event=>{
     if((event.target as Element).closest('.rp-widget')!==el||disabled[id])return;
     const input=event.target as HTMLInputElement;

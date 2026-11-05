@@ -255,7 +255,8 @@ export interface Widget {
     disabled?: boolean;
     selected?: boolean;
     selectionGroup?: string;
-    variants?: { disabled?: WidgetAppearance; selected?: WidgetAppearance };
+    propagateStyles?:boolean;
+    variants?: Partial<Record<'disabled'|'selected'|'hover'|'pressed',WidgetAppearance>>;
     kind: 'group' | 'shape' | 'image' | 'hotspot' | 'panel' | 'repeater' | 'table' | 'menu' | 'frame' | 'tree' | 'control' | 'unsupported';
     /** Fixed native table tracks; children are cells in row-major order. */
     panel?: import('./panel.ts').PanelLayout;

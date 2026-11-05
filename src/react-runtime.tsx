@@ -1,3 +1,4 @@
+import {pointerTargets} from './pointer.ts';
 import {bindSubmenu} from './menu.ts';
 import {createPortal} from 'react-dom';
 import {openFlyout,closeFlyout,backdropStyle} from './popups.ts';
@@ -178,12 +179,12 @@ export function PrototypePage({definition,children}:{definition:PageDefinition;c
     for(const list of [definition.behaviors,...definition.widgets.filter(w=>!w.rowInstance).map(w=>w.behaviors)])for(const b of list)if(b.event==='load')void run(b.actions,active.signal);
     return ()=>{active.abort();for(const w of currentWidgets())closeFlyout(w.id);};
   },[definition]);
-  return <Context.Provider value={{overrides,run:(actions,values)=>run(actions,undefined,0,values),input,paint,image:(id,fallback)=>{const adaptive=paint(id),base=adaptive?{normal:adaptive.content.find(c=>c.kind==='image')?.asset,...Object.fromEntries(Object.entries(adaptive.variants??{}).flatMap(([k,v])=>{const image=v.content?.find(c=>c.kind==='image');return image?[[k,image.asset]]:[];}))}:currentWidgets().find(w=>w.id===id)?.imageAssets;return currentImage(base,latest.current[id]?.images,latest.current[id]??{},fallback);},pointer:(id,key,value)=>updateOverrides(p=>({...p,[id]:{...p[id],[key]:value,...(key==='hovered'&&!value?{pressed:false}:{})}}))}}><main className="rp-page" style={{...reactStyle(pageStyle(definition.adaptive?.layouts[activeView]??definition)),background:definition.adaptive?.layouts[activeView]?.background??definition.background}}>{children}{Object.entries(backdrops).map(([id,b])=>{const parent=document.getElementById(id)?.parentElement;return parent?createPortal(<div className="rp-backdrop" style={reactStyle(backdropStyle(b.color,b.zIndex))} onClick={()=>{setBackdrops(p=>Object.fromEntries(Object.entries(p).filter(([key])=>key!==id)));if(b.hide)void run([{kind:'hide',target:id,transition:b.transition}]);}}/>,parent,id):null;})}</main></Context.Provider>;
+  return <Context.Provider value={{overrides,run:(actions,values)=>run(actions,undefined,0,values),input,paint,image:(id,fallback)=>{const adaptive=paint(id),base=adaptive?{normal:adaptive.content.find(c=>c.kind==='image')?.asset,...Object.fromEntries(Object.entries(adaptive.variants??{}).flatMap(([k,v])=>{const image=v.content?.find(c=>c.kind==='image');return image?[[k,image.asset]]:[];}))}:currentWidgets().find(w=>w.id===id)?.imageAssets;return currentImage(base,latest.current[id]?.images,latest.current[id]??{},fallback);},pointer:(id,key,value)=>updateOverrides(p=>{const next={...p};for(const target of pointerTargets(currentWidgets(),id))next[target]={...p[target],[key]:value,...(key==='hovered'&&!value?{pressed:false}:{})};return next;})}}><main className="rp-page" style={{...reactStyle(pageStyle(definition.adaptive?.layouts[activeView]??definition)),background:definition.adaptive?.layouts[activeView]?.background??definition.background}}>{children}{Object.entries(backdrops).map(([id,b])=>{const parent=document.getElementById(id)?.parentElement;return parent?createPortal(<div className="rp-backdrop" style={reactStyle(backdropStyle(b.color,b.zIndex))} onClick={()=>{setBackdrops(p=>Object.fromEntries(Object.entries(p).filter(([key])=>key!==id)));if(b.hide)void run([{kind:'hide',target:id,transition:b.transition}]);}}/>,parent,id):null;})}</main></Context.Provider>;
 }
 const eventProps:Record<string,string>={click:'onClick',dblclick:'onDoubleClick',mouseenter:'onMouseEnter',mousemove:'onMouseMove',mouseleave:'onMouseLeave',mousedown:'onMouseDown',mouseup:'onMouseUp',keydown:'onKeyDown',keyup:'onKeyUp',contextmenu:'onContextMenu',selectionchange:'onChange',change:'onChange',focus:'onFocus',blur:'onBlur'};
-export function RpWidget({id,type,name,style,disabledStyle,selectedStyle,behaviors,children,tree,menu}:{id:string;type:string;name:string;style:CSSProperties;disabledStyle?:CSSProperties;selectedStyle?:CSSProperties;behaviors:Behavior[];children?:ReactNode;tree?:Widget['tree'];menu?:Widget['menu']}) {
+export function RpWidget({id,type,name,style,disabledStyle,selectedStyle,pointerStyles,propagateStyles,behaviors,children,tree,menu}:{id:string;type:string;name:string;style:CSSProperties;disabledStyle?:CSSProperties;selectedStyle?:CSSProperties;pointerStyles?:{hover?:CSSProperties;pressed?:CSSProperties};propagateStyles?:boolean;behaviors:Behavior[];children?:ReactNode;tree?:Widget['tree'];menu?:Widget['menu']}) {
   const runtime=useRuntime();const override=runtime.overrides[id],adaptive=runtime.paint(id);
-  if(adaptive){style=reactStyle(adaptive.css);disabledStyle=adaptive.variants?.disabled?reactStyle(adaptive.variants.disabled.css):undefined;selectedStyle=adaptive.variants?.selected?reactStyle(adaptive.variants.selected.css):undefined;}
+  if(adaptive){pointerStyles=Object.fromEntries(Object.entries(adaptive.variants??{}).filter(([key])=>key==='hover'||key==='pressed').map(([key,v])=>[key,reactStyle(v.css)]));style=reactStyle(adaptive.css);disabledStyle=adaptive.variants?.disabled?reactStyle(adaptive.variants.disabled.css):undefined;selectedStyle=adaptive.variants?.selected?reactStyle(adaptive.variants.selected.css):undefined;}
   const elementRef=useRef<HTMLDivElement>(null),live=useRef({runtime,override,behaviors});live.current={runtime,override,behaviors};
   useEffect(()=>{const el=elementRef.current;if(!el||!behaviors.some(b=>(syntheticEvents as readonly string[]).includes(b.event)))return;return bindSyntheticEvents(el,behaviors.map(b=>b.event),(name,values)=>{for(const b of live.current.behaviors)if(b.event===name)void live.current.runtime.run(b.actions,values);},()=>!!live.current.override?.disabled);},[id]);
   useEffect(()=>menu?bindSubmenu(id,menu.trigger,actions=>void live.current.runtime.run(actions)):undefined,[id,menu?.trigger]);
@@ -192,9 +193,9 @@ export function RpWidget({id,type,name,style,disabledStyle,selectedStyle,behavio
     const list=behaviors.filter(b=>b.event===eventName);if(!list.length)continue;
     events[prop]=event=>{if(override?.disabled)return;if(eventName==='click'){const target=event.target as Element;if(target.closest('label.rp-selection')&&target.tagName!=='INPUT')return;event.stopPropagation();}for(const b of list)void runtime.run(b.actions,eventValues(event));};
   }
-  if(type==='ImageBox')for(const [name,key,value]of [['onMouseEnter','hovered',true],['onMouseLeave','hovered',false],['onMouseDown','pressed',true],['onMouseUp','pressed',false]] as const){const prior=events[name];events[name]=event=>{runtime.pointer(id,key,value);prior?.(event);};}
-  const variant=appearanceVariant({disabled:disabledStyle,selected:selectedStyle},override??{});
-  const paint=variant==='disabled'?disabledStyle:variant==='selected'?selectedStyle:undefined;
+  if(type==='ImageBox'||propagateStyles||pointerStyles?.hover||pointerStyles?.pressed||adaptive)for(const [name,key,value]of [['onMouseEnter','hovered',true],['onMouseLeave','hovered',false],['onMouseDown','pressed',true],['onMouseUp','pressed',false]] as const){const prior=events[name];events[name]=event=>{runtime.pointer(id,key,value);prior?.(event);};}
+  const variant=appearanceVariant({disabled:disabledStyle,selected:selectedStyle,...pointerStyles},override??{});
+  const paint=variant==='disabled'?disabledStyle:variant==='selected'?selectedStyle:variant==='hover'||variant==='pressed'?pointerStyles?.[variant]:undefined;
   const computedStyle=paint?{...paint,position:style.position,left:style.left,top:style.top,width:style.width,height:style.height,display:style.display}:{...style};
   if(override?.zIndex!==undefined)computedStyle.zIndex=override.zIndex;
   if(override?.geometry)Object.assign(computedStyle,reactStyle(geometryCss(override.geometry,type==='Layer')));
@@ -260,10 +261,11 @@ export function RpText({ownerId,children,...props}:HTMLAttributes<HTMLDivElement
 
 export const widgetCss=(widget:Widget):CSSProperties=>reactStyle(widgetStyle(widget));
 export const widgetDisabledCss=(widget:Widget):CSSProperties|undefined=>widget.variants?.disabled?reactStyle(widget.variants.disabled.css):undefined;
+export const widgetPointerCss=(widget:Widget):{hover?:CSSProperties;pressed?:CSSProperties}=>Object.fromEntries(Object.entries(widget.variants??{}).filter(([key])=>key==='hover'||key==='pressed').map(([key,v])=>[key,reactStyle(v.css)]));
 export const widgetSelectedCss=(widget:Widget):CSSProperties|undefined=>widget.variants?.selected?reactStyle(widget.variants.selected.css):undefined;
 export function RpAppearance({ownerId,variants,children}:{ownerId:string;variants:Exclude<AppearanceVariant,'normal'>[];children:(variant:AppearanceVariant)=>ReactNode}) {
   const {overrides}=useRuntime();
-  const available={disabled:variants.includes('disabled'),selected:variants.includes('selected')};
+  const available=Object.fromEntries(variants.map(key=>[key,true]));
   return <div className="rp-content" style={{display:'contents'}}>{children(appearanceVariant(available,overrides[ownerId]??{}))}</div>;
 }
 function renderContent(node:ElementNode|string,ownerId:string,key:number):ReactNode {

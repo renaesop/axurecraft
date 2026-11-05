@@ -15,11 +15,42 @@
     {
       "name": "Webstack initial",
       "hash": ""
+    },
+    {
+      "name": "First card hover",
+      "steps": [
+        {
+          "action": "hover",
+          "x": 180,
+          "y": 420
+        }
+      ]
+    },
+    {
+      "name": "Search menu open",
+      "steps": [
+        {
+          "action": "click",
+          "x": 1246,
+          "y": 200
+        }
+      ]
+    },
+    {
+      "name": "Pinned header after scroll",
+      "steps": [
+        {
+          "action": "scroll",
+          "x": 0,
+          "y": 500
+        }
+      ]
     }
   ],
   "source": {
     "repository": "https://github.com/RicardoWesleyli/webstack",
     "commit": "11331466fcde1543f11d9adba3427054174e3b3b",
     "sha256": "c2f3d9a4bf448c91aac0e77d21a9f545a962a5632177a5be5c1f215c8373bf16"
-  }
+  },
+  "settleMs": 500
 }

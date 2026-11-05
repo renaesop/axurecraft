@@ -1,4 +1,4 @@
-import type { BinaryOperator, UIExpression } from './model.ts';
+import type { BinaryOperator, UIExpression, WidgetProperty } from './model.ts';
 
 const precedence: Record<BinaryOperator, number> = {
   '||': 1, '&&': 2, '==': 3, '!=': 3, '>': 4, '<': 4, '>=': 4, '<=': 4,
@@ -42,6 +42,7 @@ export function parseFormula(source: string, resolve: (name: string) => UIExpres
     while (cursor < tokens.length) {
       if (tokens[cursor] === '.') {
         cursor++; const method = tokens[cursor++];
+        if(['text','selected','x','y','width','height','rotation','visible','disabled','itemCount','visibleItemCount','dataCount','pageCount','pageIndex'].includes(method)&&left.kind==='widget'){left={...left,property:method as WidgetProperty};continue;}
         if (method === 'length' && tokens[cursor] !== '(') { left = { kind: 'length', value: left }; continue; }
         if (method !== 'slice' && method !== 'toFixed') throw new Error(`Unsupported formula method ${method}`);
         take('('); const args: UIExpression[] = [];

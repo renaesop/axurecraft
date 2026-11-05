@@ -1,4 +1,5 @@
 import type { Css, Widget, WidgetContent, RichText } from './model.ts';
+import {panelCss} from './panel.ts';
 import {layoutTable,tableRows} from './table.ts';
 /** Target-independent element tree, derived from semantic content only at code generation. */
 export interface ElementNode { tag:string; attrs:Record<string,string|number|boolean|undefined>; css?:Css; children:(ElementNode|string)[] }
@@ -12,6 +13,7 @@ export function imageFramePath(width:number,height:number,radius:number,borderWi
 }
 export function contentElements(content:WidgetContent):ElementNode[]{
   switch(content.kind){
+    case 'frame':return [element('iframe',{src:content.src,name:content.name,title:content.title,scrolling:content.scrolling},[],{width:'100%',height:'100%',border:content.border?'1px solid #797979':'0',display:'block'})];
     case 'text':return [textElement(content)];
     case 'image':{
       if(!content.asset)return [];
@@ -31,19 +33,19 @@ export function contentElements(content:WidgetContent):ElementNode[]{
     }
     case 'control':{
       const c=content;
-      const attrs={'aria-label':c.label,disabled:c.disabled,readonly:c.readOnly,maxlength:c.maxLength};
+      const attrs={'aria-label':c.label,disabled:c.disabled,readonly:c.readOnly,maxlength:c.maxLength,'data-hide-hint-on-focus':c.hideHintOnFocus};
       if(c.control==='textarea')return [element('textarea',{...attrs,placeholder:c.placeholder},[c.value])];
       if(c.control==='radio'||c.control==='checkbox')return [element('label',{class:'rp-selection'},[element('input',{type:c.control,name:c.group,checked:c.checked,disabled:c.disabled},[],{width:'13px',height:'13px',margin:'0 3px 0 0','flex-shrink':'0'}),...(c.richLabel?[textElement(c.richLabel)]:[c.value])])];
       if(c.control==='button')return [element('button',{disabled:c.disabled},[c.value],{width:'100%',height:'100%',font:'inherit'})];
       if(c.control==='select')return [element('select',{...attrs,value:c.value,size:c.listBox?Math.max(2,c.options?.length??0):undefined},(c.options??[]).map((o,i)=>element('option',{value:o.value,selected:i===(c.options??[]).findIndex(o=>o.value===c.value)},[o.label])))];
-      return [element('input',{...attrs,value:c.value,placeholder:c.placeholder})];
+      return [element('input',{...attrs,type:c.inputType??'text',value:c.inputType==='file'?undefined:c.value,placeholder:c.placeholder})];
     }
   }
 }
 export function widgetStyle(w:Widget):Css {
   // Native group wrappers have zero size: only descendants participate in hits.
   // Semantic width/height still describe member bounds for layout and editing.
-  return {...w.css,position:'absolute',left:`${w.x}px`,top:`${w.y}px`,width:`${w.kind==='group'?0:w.width}px`,height:`${w.kind==='group'?0:w.height}px`};
+  return {...w.css,position:'absolute',left:`${w.x}px`,top:`${w.y}px`,width:`${w.kind==='group'?0:w.width}px`,height:`${w.kind==='group'?0:w.height}px`,...panelCss(w)};
 }
 export function widgetElement(w:Widget):ElementNode {
   w=layoutTable(w);

@@ -1,12 +1,13 @@
 /** Editable UI model. RP storage details stay in the lossless AST and source references.
  * This describes visual widgets and supported behavior, not inferred business components.
  */
+export type WidgetProperty='text'|'selected'|'x'|'y'|'width'|'height'|'rotation'|'visible'|'disabled'|'itemCount'|'visibleItemCount'|'dataCount'|'pageCount'|'pageIndex';
 export type Scalar = string | number | boolean;
 export type BinaryOperator = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '>' | '<' | '>=' | '<=' | '&&' | '||';
 /** Portable, inspectable expressions; native RP references are resolved during conversion. */
 export type UIExpression =
     | { kind: 'literal'; value: Scalar }
-    | { kind: 'widget'; target: string; property: 'text' | 'selected' }
+    | { kind: 'widget'; target: string; property: WidgetProperty }
     | { kind: 'variable'; name: string }
     | { kind: 'length'; value: UIExpression }
     | { kind: 'column'; columnId: number }
@@ -19,13 +20,23 @@ export interface ConditionalBranch {
     actions: Action[];
 }
 export interface Action {
-    kind: 'link' | 'back' | 'refresh' | 'show' | 'hide' | 'toggle' | 'state' | 'enable' | 'wait' | 'repeater-sort' | 'repeater-page' | 'set-text' | 'set-selected' | 'set-variable' | 'branch';
+    kind: 'link' | 'back' | 'refresh' | 'show' | 'hide' | 'toggle' | 'state' | 'enable' | 'wait' | 'move' | 'resize' | 'rotate' | 'repeater-data' | 'repeater-sort' | 'repeater-page' | 'focus' | 'fire-event' | 'set-text' | 'set-selected' | 'set-variable' | 'branch';
     target?: string;
     value?: string | number | boolean;
     sort?: RepeaterSort;
+    repeaterAction?: RepeaterAction;
     expression?: UIExpression;
     variable?: string;
     includeVariables?: boolean;
+    navigation?: 'current' | 'new' | 'popup' | 'parent' | 'frame' | 'parent-frame';
+    windowFeatures?: string;
+    loop?: boolean;
+    transition?: {show:number;hide:number;showDuration:number;hideDuration:number;bringToFront?:boolean};
+    motion?: {
+        x?: UIExpression; y?: UIExpression; width?: UIExpression; height?: UIExpression;
+        angle?: UIExpression; offsetX?: UIExpression; offsetY?: UIExpression;
+        relative?: boolean; clockwise?: boolean; anchor?: string; duration?: number; easing?: number;
+    };
     /** First matching branch executes; separate branch actions represent independent if groups. */
     branches?: ConditionalBranch[];
 }
@@ -106,13 +117,23 @@ export interface FormControl {
     group?: string;
     listBox?: boolean;
     maxLength?: number;
+    inputType?: import('./controls.ts').InputType;
+    hideHintOnFocus?: boolean;
     richLabel?: RichText;
     options?: {
         label: string;
         value: string;
     }[];
 }
-export type WidgetContent = RichText | VectorGraphic | ImageContent | FormControl;
+export interface FrameContent {
+    kind: 'frame';
+    src: string;
+    name: string;
+    title: string;
+    border: boolean;
+    scrolling: 'auto' | 'yes' | 'no';
+}
+export type WidgetContent = RichText | VectorGraphic | ImageContent | FormControl | FrameContent;
 /** State paint. Omitted content reuses the widget's content; layout and behavior stay on the widget. */
 export interface WidgetAppearance {
     css: Css;
@@ -154,15 +175,26 @@ export interface RowBinding {
 export interface RepeaterSort {
     columnId: number;
     ascending: boolean;
-    type: 'number' | 'text';
+    type: 'number' | 'text' | 'text-case';
     label: string;
     toggle?: boolean;
+}
+export type RepeaterCellValue = DataCell | {kind:'expression';expression:UIExpression};
+export interface RepeaterAction {
+ operation:'filter'|'remove-filter'|'remove-sort'|'add'|'delete'|'update'|'mark';
+ label?:string;clear?:boolean;condition?:UIExpression;
+ selection?:'this'|'all'|'rule'|'marked';rowId?:string;mark?:boolean;
+ rows?:Record<string,RepeaterCellValue>[];values?:Record<string,RepeaterCellValue>;
 }
 /** Runtime state, held separately from the serialized repeater template and rows. */
 export interface RepeaterState {
     page: number;
     sorts: RepeaterSort[];
     revision: number;
+    rows?: RepeaterData['rows'];
+    filters?: {label:string;condition:UIExpression}[];
+    marked?: string[];
+    nextRowId?: number;
 }
 /** Canonical repeater definition. Derive visible instances from template + rows + bindings. */
 export interface RepeaterData {
@@ -210,8 +242,9 @@ export interface Widget {
     selected?: boolean;
     selectionGroup?: string;
     variants?: { disabled?: WidgetAppearance; selected?: WidgetAppearance };
-    kind: 'group' | 'shape' | 'image' | 'hotspot' | 'panel' | 'repeater' | 'table' | 'menu' | 'control' | 'unsupported';
+    kind: 'group' | 'shape' | 'image' | 'hotspot' | 'panel' | 'repeater' | 'table' | 'menu' | 'frame' | 'control' | 'unsupported';
     /** Fixed native table tracks; children are cells in row-major order. */
+    panel?: import('./panel.ts').PanelLayout;
     table?: { rowHeights: number[]; columnWidths: number[] };
     repeater?: RepeaterData;
     /** Derived view only: materializeRepeater adds this; conversion does not serialize it. */

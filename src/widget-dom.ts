@@ -1,11 +1,15 @@
-import type { Scalar } from './model.ts';
+import {readGeometry} from './motion.ts';
+import type { Scalar,WidgetProperty } from './model.ts';
 
 export function ownedElement<T extends Element>(widget: Element, selector: string): T | undefined {
   return [...widget.querySelectorAll<T>(selector)].find(el => el.closest('.rp-widget') === widget);
 }
-export function readWidgetValue(id: string, property: 'text' | 'selected'): Scalar | undefined {
+export function readWidgetValue(id: string, property: WidgetProperty): Scalar | undefined {
   const widget = document.getElementById(id);
   if (!widget) return undefined;
+  if(['x','y','width','height','rotation'].includes(property))return readGeometry(id)?.[property as 'x'|'y'|'width'|'height'|'rotation'];
+  if(property==='visible')return getComputedStyle(widget).display!=='none';
+  if(property==='disabled')return widget.getAttribute('aria-disabled')==='true';
   const input = ownedElement<HTMLInputElement>(widget, 'input,textarea,select');
   if (property === 'selected') return input && ['checkbox', 'radio'].includes(input.type) ? input.checked : widget.getAttribute('aria-selected') === 'true';
   if (input && !['checkbox', 'radio'].includes(input.type)) return input.value;

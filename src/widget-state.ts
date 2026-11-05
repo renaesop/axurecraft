@@ -1,5 +1,6 @@
 import type { Behavior, Widget, WidgetAppearance, WidgetContent } from './model.ts';
 import { flattenWidgets } from './repeater-model.ts';
+import type {Geometry} from './motion.ts';
 const supportsDisabled = (kind: Widget['kind']): boolean => ['group', 'panel', 'shape', 'image', 'control'].includes(kind);
 
 type ResolvedAppearance = WidgetAppearance & {content:WidgetContent[]};
@@ -12,6 +13,7 @@ export function appearanceVariant(variants:{disabled?:unknown;selected?:unknown}
 /** Rendering metadata. It is derived from Project, not part of editable content. */
 export interface WidgetStateDefinition {
   id: string;
+  geometry?: Geometry;
   kind: Widget['kind'];
   visible: boolean;
   disabled: boolean;
@@ -36,6 +38,7 @@ function selectionControl(widget:Widget):'checkbox'|'radio'|undefined {
 export function describeWidgets(widgets: Widget[]): WidgetStateDefinition[] {
   return flattenWidgets(widgets).map(w => ({
     id: w.id, kind: w.kind, visible: w.css.display !== 'none',
+    geometry:{x:w.x,y:w.y,width:w.width,height:w.height,rotation:parseFloat(/rotate\(([-.\d]+)/.exec(w.css.transform??'')?.[1]??'0')},
     selectionControl: selectionControl(w),
     radioGroup: w.content.flatMap(c => c.kind === 'control' && c.control === 'radio' && c.group ? [c.group] : [])[0],
     selectionGroup: w.selectionGroup,

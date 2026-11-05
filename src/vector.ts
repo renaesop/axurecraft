@@ -8,6 +8,11 @@ const xy = (point: Point): string => `${fmt(point.x)} ${fmt(point.y)}`;
 
 /** Native plain rectangles use CSS, including its corner antialiasing. Edited paths stay SVG. */
 export function isCssRectangle(widget:Value,props:Map<number,Value>,width:number,height:number):boolean {
+  const stroke=paint(props.get(8),'');
+  if(stroke.opacity>0&&stroke.opacity<1&&number(props.get(15),1)>0)return false;
+  return isNativeRectangle(widget,props,width,height);
+}
+function isNativeRectangle(widget:Value,props:Map<number,Value>,width:number,height:number):boolean {
   if(number(field(widget.body,'Shape'),-1)!==0)return false;
   const paths=items(field(widget.body,'ControlPoints'));
   if(paths.length!==1)return false;
@@ -63,7 +68,7 @@ function argb(value: number): { color: string; opacity: number } {
   return { color: `#${(bits & 0xffffff).toString(16).padStart(6, '0')}`, opacity: (bits >>> 24) / 255 };
 }
 interface Paint { value:string; opacity:number; gradient?:VectorGradient }
-function paint(fill:Value|undefined,id:string):Paint {
+export function paint(fill:Value|undefined,id:string):Paint {
   const data=plain(fill) as Record<string,unknown>|null;
   const none={value:'none',opacity:1};
   if(!data||typeof data!=='object')return none;
@@ -84,11 +89,11 @@ function paint(fill:Value|undefined,id:string):Paint {
   }
   return none;
 }
-function linePattern(pattern:number,width:number):string|undefined {
+export function linePattern(pattern:number,width:number):string|undefined {
   const patterns:Record<number,number[]>={2:[8,3],3:[5,3],4:[3,3],5:[5,3,1,3],6:[5,3,1,3,1,3],7:[8,3,3,3],8:[1,2]};
   return patterns[pattern]?.map(n=>fmt(n*Math.max(width,1))).join(' ');
 }
-function marker(kind:number,id:string,color:string):VectorMarker|undefined {
+export function marker(kind:number,id:string,color:string):VectorMarker|undefined {
   const paths:Record<number,string>={2:'M 0 0 L 6 3 L 0 6',3:'M 0 0 L 6 3 L 0 6 Z',4:'M 0 1 L 6 3 L 0 5 Z',5:'M 0 3 L 3 0 L 6 3 L 3 6 Z',6:'M 6 0 L 6 6'};
   return paths[kind]?{id,data:paths[kind],color,filled:[3,4,5].includes(kind)}:undefined;
 }
@@ -123,6 +128,16 @@ export function parseVector(widget:Value,props:Map<number,Value>,width:number,he
     borderPath=edges.filter(([mask])=>mask&borderVisibility).map(([,path])=>path).join(' ');
   }
   const line={stroke:strokeWidth?stroke.value:'none',strokeOpacity:Number(fmt(stroke.opacity)),strokeWidth:Number(fmt(strokeWidth)),dashArray:linePattern(pattern,strokeWidth),markerStart:startMarker?.id,markerEnd:endMarker?.id};
+  // Axure paints translucent rectangle borders over the page, not over the fill.
+  // The inner fill and half-inset circular border are separate contours.
+  if(isNativeRectangle(widget,props,width,height)&&strokeWidth&&stroke.opacity<1){
+    const radius=Math.min(Math.max(0,number(props.get(71))),width/2,height/2);
+    const contour=(inset:number):string=>{
+      const x=Math.min(inset,width/2),y=Math.min(inset,height/2),r=Math.max(0,radius-inset),right=width-x,bottom=height-y;
+      return r?`M ${fmt(x)} ${fmt(y+r)} A ${fmt(r)} ${fmt(r)} 0 0 1 ${fmt(x+r)} ${fmt(y)} L ${fmt(right-r)} ${fmt(y)} A ${fmt(r)} ${fmt(r)} 0 0 1 ${fmt(right)} ${fmt(y+r)} L ${fmt(right)} ${fmt(bottom-r)} A ${fmt(r)} ${fmt(r)} 0 0 1 ${fmt(right-r)} ${fmt(bottom)} L ${fmt(x+r)} ${fmt(bottom)} A ${fmt(r)} ${fmt(r)} 0 0 1 ${fmt(x)} ${fmt(bottom-r)} Z`:`M ${fmt(x)} ${fmt(y)} H ${fmt(right)} V ${fmt(bottom)} H ${fmt(x)} Z`;
+    };
+    return {kind:'vector',width,height,paths:[{data:contour(strokeWidth),fill:fill.value,fillOpacity:fill.opacity},{data:contour(strokeWidth/2),fill:'none',fillOpacity:1,...line}],gradients:[fill.gradient,stroke.gradient].filter((g):g is VectorGradient=>!!g),markers:[]};
+  }
   const paths:VectorPath[]=borderPath===d?[{data:d,fill:fill.value,fillOpacity:Number(fmt(fill.opacity)),...line}]:[{data:d,fill:fill.value,fillOpacity:Number(fmt(fill.opacity))},{data:borderPath,fill:'none',fillOpacity:1,...line}];
   return {kind:'vector',width,height,paths,gradients:[fill.gradient,stroke.gradient].filter((g):g is VectorGradient=>!!g),markers:[startMarker,endMarker].filter((m):m is VectorMarker=>!!m)};
 }

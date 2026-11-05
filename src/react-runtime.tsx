@@ -1,9 +1,13 @@
 import {pageStyle} from './page-layout.ts';
+import {animateTransition,frontIndex} from './transition.ts';
+import {nextPanelState} from './panel.ts';
+import {navigate} from './navigation.ts';
+import {movedGeometry,geometryCss,animateGeometry,readGeometry,type Geometry} from './motion.ts';
 import {createVariables,reloadWithVariables} from './variables.ts';
 import {createSelectionController} from './selection.ts';
 import {executeActions} from './behavior-runtime.ts';
 import {readWidgetValue} from './widget-dom.ts';
-import {materializeRepeater,flattenWidgets,updateRepeaterState,type MaterializedRow} from './repeater-model.ts';
+import {materializeRepeater,readRepeaterProperty,flattenWidgets,updateRepeaterState,type MaterializedRow} from './repeater-model.ts';
 import {contentElements,widgetStyle,type ElementNode} from './render-tree.ts';
 import {reactStyle,reactAttribute} from './react-props.ts';
 import {describeWidgets,enabledChanges,initialDisabled,appearanceVariant,canSelectWidget,type WidgetStateDefinition,type AppearanceVariant} from './widget-state.ts';
@@ -15,7 +19,7 @@ export interface PageDefinition {
   repeaters:Record<string,RepeaterData>;
   widgets:WidgetStateDefinition[];
 }
-interface Override {repeater?:RepeaterState;visible?:boolean;state?:string;disabled?:boolean;text?:string;selected?:boolean;selectedPaint?:boolean}
+interface Override {repeater?:RepeaterState;visible?:boolean;state?:string;disabled?:boolean;text?:string;selected?:boolean;selectedPaint?:boolean;geometry?:Geometry;zIndex?:number;transition?:Action['transition']}
 interface Runtime {overrides:Record<string,Override>;run:(actions:Action[])=>Promise<void>;input:(id:string,property:'text'|'selected',value:string|boolean)=>void}
 const Context=createContext<Runtime|null>(null);
 const disabledOverrides=(widgets:WidgetStateDefinition[]):Record<string,Override>=>Object.fromEntries(Object.entries(initialDisabled(widgets)).map(([id,disabled])=>[id,{disabled,selected:widgets.find(w=>w.id===id)?.selected}]));
@@ -46,9 +50,21 @@ export function PrototypePage({definition,children}:{definition:PageDefinition;c
           const timer=setTimeout(finish,Number(action.value)||0);signal?.addEventListener('abort',finish,{once:true});
         });continue;
       }
-      if(action.kind==='link'){if(typeof action.value==='string')window.location.href=action.includeVariables?variables.link(action.value):action.value;continue;}
+      if(action.kind==='focus'&&action.target){const el=document.getElementById(action.target),control=el?.querySelector<HTMLElement>('input,textarea,select,button,[tabindex]')??el;control?.focus();if(action.value&&control&&'select'in control)(control as HTMLInputElement).select();continue;}
+      if(action.kind==='link'){if(typeof action.value==='string')navigate(action,action.includeVariables?variables.link(action.value):action.value);continue;}
       if(action.kind==='back'){window.history.back();continue;}
       if(action.kind==='refresh'){reloadWithVariables(variables,action.includeVariables!==false);continue;}
+      if(['move','resize','rotate'].includes(action.kind)&&action.target){
+        const target=currentWidgets().find(w=>w.id===action.target),before=latest.current[action.target]?.geometry??readGeometry(action.target,target?.geometry);
+        if(before){const geometry=movedGeometry(before,action);animateGeometry(action.target,before,geometry,action,target?.kind==='group');updateOverrides(previous=>({...previous,[action.target!]:{...previous[action.target!],geometry}}));}
+        continue;
+      }
+      if(['show','hide','toggle'].includes(action.kind)&&action.target){
+        const id=action.target,element=document.getElementById(id),target=currentWidgets().find(w=>w.id===id);if(!element||!target)continue;
+        const show=action.kind==='show'||action.kind==='toggle'&&!(latest.current[id]?.visible??target.visible),t=action.transition;
+        if(show)updateOverrides(p=>({...p,[id]:{...p[id],visible:true,zIndex:t?.bringToFront?frontIndex():p[id]?.zIndex}}));
+        animateTransition(element,show,show?t?.show??0:t?.hide??0,show?t?.showDuration??0:t?.hideDuration??0,()=>{if(!show)updateOverrides(p=>({...p,[id]:{...p[id],visible:false}}));});continue;
+      }
       if(action.kind==='enable'&&action.target){
         const widgets=currentWidgets();
         for(const [id,disabled]of Object.entries(enabledChanges(widgets,action.target,!!action.value))){
@@ -58,10 +74,11 @@ export function PrototypePage({definition,children}:{definition:PageDefinition;c
         continue;
       }
       updateOverrides(previous=>{
-        if((action.kind==='repeater-sort'||action.kind==='repeater-page')&&action.target){
+        if((action.kind==='repeater-data'||action.kind==='repeater-sort'||action.kind==='repeater-page')&&action.target){
           const data=definition.repeaters[action.target];if(!data)return previous;
           const reset=Object.fromEntries(Object.entries(previous).filter(([id])=>!id.startsWith(action.target+'-row')));
           const repeater=updateRepeaterState(data,previous[action.target]?.repeater,action);
+          if(action.repeaterAction?.operation==='mark')return {...previous,[action.target]:{...previous[action.target],repeater}};
           const rows=materializeRepeater(action.target,data,repeater).flatMap(row=>row.widgets);
           return {...reset,...disabledOverrides(describeWidgets(rows)),[action.target]:{...previous[action.target],repeater}};
         }
@@ -77,10 +94,7 @@ export function PrototypePage({definition,children}:{definition:PageDefinition;c
         if(action.kind==='hide')next.visible=false;
         if(action.kind==='toggle')next.visible=!(next.visible??target.visible);
         if(action.kind==='state'){
-          const states=target.states;const index=states.indexOf(next.state??states[0]);
-          if(action.value==='next')next.state=states[(index+1)%states.length];
-          else if(action.value==='previous')next.state=states[(index+states.length-1)%states.length];
-          else if(typeof action.value==='string'&&states.includes(action.value))next.state=action.value;
+          next.state=nextPanelState(target.states,next.state,action.value,action.loop??true);next.transition=action.transition;
         }
         return {...previous,[target.id]:next};
       });
@@ -105,10 +119,15 @@ export function PrototypePage({definition,children}:{definition:PageDefinition;c
   });
   const run=(actions:Action[],signal=controller.current?.signal,depth=0):Promise<void>=>executeActions(actions,{
     readVariable:variables.read,writeVariable:variables.write,
-    readWidget:(id,property)=>latest.current[id]?.[property==='text'?'text':'selected']??readWidgetValue(id,property),
+    readWidget:(id,property)=>{
+      const r=definition.repeaters[id],o=latest.current[id];
+      if(r){const value=readRepeaterProperty(r,o?.repeater,property);if(value!==undefined)return value;}
+      if(['text','selected','visible','disabled'].includes(property))return o?.[property as 'text'|'selected'|'visible'|'disabled']??readWidgetValue(id,property);
+      return o?.geometry?.[property as keyof Geometry]??readWidgetValue(id,property);
+    },
     writeText:(id,text)=>updateOverrides(previous=>({...previous,[id]:{...previous[id],text}})),
     writeSelected:(id,selected)=>updateOverrides(previous=>({...previous,[id]:{...previous[id],selected,selectedPaint:previous[id]?.disabled?(previous[id]?.selectedPaint??previous[id]?.selected??false):selected}})),
-    behaviors:id=>currentWidgets().find(w=>w.id===id)?.behaviors??[],
+    behaviors:id=>id==='$page'?definition.behaviors:currentWidgets().find(w=>w.id===id)?.behaviors??[],
     isDisabled:id=>!!latest.current[id]?.disabled,
     select:selection.select,
     selectionEventState:id=>latest.current[id]?.selectedPaint??latest.current[id]?.selected??false,
@@ -128,7 +147,7 @@ export function PrototypePage({definition,children}:{definition:PageDefinition;c
   },[definition]);
   return <Context.Provider value={{overrides,run,input}}><main className="rp-page" style={{...reactStyle(pageStyle(definition)),background:definition.background}}>{children}</main></Context.Provider>;
 }
-const eventProps:Record<string,string>={click:'onClick',dblclick:'onDoubleClick',mouseenter:'onMouseEnter',mouseleave:'onMouseLeave',change:'onChange',focus:'onFocus',blur:'onBlur'};
+const eventProps:Record<string,string>={click:'onClick',dblclick:'onDoubleClick',mouseenter:'onMouseEnter',mousemove:'onMouseMove',mouseleave:'onMouseLeave',mousedown:'onMouseDown',mouseup:'onMouseUp',keydown:'onKeyDown',keyup:'onKeyUp',contextmenu:'onContextMenu',selectionchange:'onChange',change:'onChange',focus:'onFocus',blur:'onBlur'};
 export function RpWidget({id,type,name,style,disabledStyle,selectedStyle,behaviors,children}:{id:string;type:string;name:string;style:CSSProperties;disabledStyle?:CSSProperties;selectedStyle?:CSSProperties;behaviors:Behavior[];children?:ReactNode}) {
   const runtime=useRuntime();const override=runtime.overrides[id];
   const events:Record<string,(event:{stopPropagation:()=>void;target:EventTarget})=>void>={};
@@ -139,12 +158,21 @@ export function RpWidget({id,type,name,style,disabledStyle,selectedStyle,behavio
   const variant=appearanceVariant({disabled:disabledStyle,selected:selectedStyle},override??{});
   const paint=variant==='disabled'?disabledStyle:variant==='selected'?selectedStyle:undefined;
   const computedStyle=paint?{...paint,position:style.position,left:style.left,top:style.top,width:style.width,height:style.height,display:style.display}:{...style};
+  if(override?.zIndex!==undefined)computedStyle.zIndex=override.zIndex;
+  if(override?.geometry)Object.assign(computedStyle,reactStyle(geometryCss(override.geometry,type==='Layer')));
   if(override?.visible!==undefined)computedStyle.display=override.visible?(style.display==='none'?undefined:style.display):'none';
   return <div className="rp-widget" id={id} data-kind={type} data-name={name} role={type==='Table'?'table':type==='TableCell'?'cell':undefined} aria-label={type==='Table'?name||'Table':undefined} aria-disabled={override?.disabled} aria-selected={override?.selected} data-click={events.onClick?'':undefined} style={computedStyle} {...events}>{children}</div>;
 }
 export function RpState({ownerId,id,initial,children,style}:{ownerId:string;id:string;initial:boolean;children?:ReactNode;style?:CSSProperties}) {
-  const {overrides}=useRuntime();const selected=overrides[ownerId]?.state;
-  return <div className="rp-state" style={style} data-state={id} hidden={selected===undefined?!initial:selected!==id}>{children}</div>;
+  const {overrides}=useRuntime(),selected=overrides[ownerId]?.state,show=selected===undefined?initial:selected===id;
+  const ref=useRef<HTMLDivElement>(null),previous=useRef(show),[visible,setVisible]=useState(show);
+  useLayoutEffect(()=>{
+    if(previous.current===show)return;previous.current=show;
+    const element=ref.current;if(!element)return;const t=overrides[ownerId]?.transition;
+    if(show)setVisible(true);
+    animateTransition(element,show,show?t?.show??0:t?.hide??0,show?t?.showDuration??0:t?.hideDuration??0,()=>{if(!show)setVisible(false);});
+  },[show]);
+  return <div ref={ref} className="rp-state" style={style} data-state={id} hidden={!visible}>{children}</div>;
 }
 type ControlProps=Omit<ComponentProps<'input'>,'children'> & {ownerId:string;as?:'input'|'textarea'|'select'|'button';children?:ReactNode};
 export function RpControl({ownerId,as='input',disabled,...props}:ControlProps) {
@@ -207,7 +235,7 @@ export function RpContent({content,variants,ownerId}:{content:WidgetContent[];va
 }
 export function RpRepeater({ownerId,data,children}:{ownerId:string;data:RepeaterData;children:(row:MaterializedRow)=>ReactNode}) {
   const runtime=useRuntime(),state=runtime.overrides[ownerId]?.repeater;
-  const rows=useMemo(()=>materializeRepeater(ownerId,data,state),[ownerId,data,state]);
+  const rows=useMemo(()=>materializeRepeater(ownerId,data,state),[ownerId,data,state?.revision]);
   useEffect(()=>{for(const w of flattenWidgets(rows.flatMap(row=>row.widgets)))for(const b of w.behaviors)if(b.event==='load'||b.event==='itemload')void runtime.run(b.actions);},[rows]);
   return <>{rows.map(row=><Fragment key={`${state?.revision??0}:${row.key}`}>{children(row)}</Fragment>)}</>;
 }

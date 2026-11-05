@@ -4,9 +4,10 @@ import {readFileSync,writeFileSync,mkdirSync,appendFileSync} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
-// Usage: node scripts/compare-html.mjs comparison.json output/comparison
+// Usage: node scripts/compare-html.mjs comparison.json output/comparison [candidate-override]
 // Inputs are real pages: reference is an Axure export, candidate is our output.
 const config=JSON.parse(readFileSync(process.argv[2],'utf8'));
+if(process.argv[4])config.candidate=process.argv[4];
 const output=resolve(process.argv[3]??'output/html-comparison');
 mkdirSync(output,{recursive:true});
 const url=value=>/^(https?|file):/.test(value)?value:pathToFileURL(resolve(value)).href;
@@ -21,13 +22,24 @@ try{
    for(const kind of ['reference','candidate']){
     // A fresh context avoids sharing cookies, globals, navigation history or storage.
     const context=await browser.newContext({viewport,deviceScaleFactor:1,colorScheme:'light',reducedMotion:'reduce',locale:'en-US',timezoneId:'UTC'});
-    const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+    const page=await context.newPage();const errors=[],imageFailures=new Set();page.on('pageerror',e=>errors.push(e.message));
+    page.on('requestfailed',request=>{if(request.resourceType()==='image')imageFailures.add(request.url());});
+    page.on('response',response=>{if(response.status()>=400&&response.request().resourceType()==='image')imageFailures.add(response.url());});
     const target=url(config[kind])+(state.hash??'');
-    await page.goto(target,{waitUntil:'networkidle',timeout:60000});
+    const response=await page.goto(target,{waitUntil:'networkidle',timeout:60000});
+    if(response&&response.status()>=400)errors.push(`Main document HTTP ${response.status()}`);
     if(config.readySelector)await page.locator(config.readySelector[kind]).waitFor();
     await page.evaluate(async()=>{await document.fonts.ready;await Promise.all([...document.images].map(i=>i.decode().catch(()=>{})));});
+    for(const step of state.steps??[]){
+      if(step.action==='hover')await page.mouse.move(step.x,step.y);
+      else if(step.action==='click')await page.mouse.click(step.x,step.y);
+      else if(step.action==='scroll')await page.evaluate(({x,y})=>window.scrollTo(x,y),step);
+      else if(step.action==='fill'){const selector=typeof step.selector==='string'?step.selector:step.selector[kind];await page.locator(selector).fill(step.value);}
+      else throw new Error(`Unknown comparison action ${step.action}`);
+      if(step.waitMs)await page.waitForTimeout(step.waitMs);
+    }
     if(config.settleMs)await page.waitForTimeout(config.settleMs);
-    const failedImages=await page.evaluate(()=>[...document.images].filter(image=>!image.complete||image.naturalWidth===0).map(image=>image.getAttribute('src')));
+    const failedImages=[...imageFailures,...await page.evaluate(()=>[...document.images].filter(image=>!image.complete||image.naturalWidth===0).map(image=>image.getAttribute('src')))];
     const filename=`${name}-${kind}.png`;
     const bytes=await page.screenshot({path:join(output,filename),animations:'disabled'});
     captures.push({kind,url:target,filename,errors,failedImages,png:PNG.sync.read(bytes)});
@@ -36,19 +48,22 @@ try{
    const [a,b]=captures.map(c=>c.png);
    if(a.width!==b.width||a.height!==b.height)throw new Error('Screenshot dimensions differ');
    const diff=new PNG({width:a.width,height:a.height}),pair=new PNG({width:a.width*2,height:a.height});
-   let differentPixels=0,maxChannelDifference=0,totalDifference=0;
+   let differentPixels=0,maxChannelDifference=0,totalDifference=0;const tiles=new Map();
    for(let p=0;p<a.width*a.height;p++){
     let changed=false;
     for(let c=0;c<4;c++){
      const d=Math.abs(a.data[p*4+c]-b.data[p*4+c]);changed||=d!==0;maxChannelDifference=Math.max(maxChannelDifference,d);totalDifference+=d;
     }
-    if(changed)differentPixels++;
+    if(changed){
+      differentPixels++;const x=p%a.width,y=Math.floor(p/a.width),key=`${Math.floor(x/64)},${Math.floor(y/64)}`;
+      const tile=tiles.get(key)??{x:Math.floor(x/64)*64,y:Math.floor(y/64)*64,width:64,height:64,differentPixels:0};tile.differentPixels++;tiles.set(key,tile);
+    }
     diff.data.set(changed?[235,35,75,255]:[255,255,255,255],p*4);
    }
    PNG.bitblt(a,pair,0,0,a.width,a.height,0,0);PNG.bitblt(b,pair,0,0,b.width,b.height,a.width,0);
    writeFileSync(join(output,`${name}-diff.png`),PNG.sync.write(diff));
    writeFileSync(join(output,`${name}-pair.png`),PNG.sync.write(pair));
-   comparisons.push({name,state:state.name,viewport,captures:captures.map(({png,...c})=>c),differentPixels,totalPixels:a.width*a.height,maxChannelDifference,meanChannelDifference:totalDifference/a.data.length});
+   comparisons.push({name,state:state.name,viewport,captures:captures.map(({png,...c})=>c),differentPixels,totalPixels:a.width*a.height,maxChannelDifference,meanChannelDifference:totalDifference/a.data.length,largestDifferenceRegions:[...tiles.values()].sort((a,b)=>b.differentPixels-a.differentPixels).slice(0,20)});
   }
  }
  const report={scope:'Axure-exported HTML versus converted HTML; full viewport, exact RGBA comparison, no crop or tolerance',browser:browser.version(),platform:process.platform,source:config.source??null,comparisons};

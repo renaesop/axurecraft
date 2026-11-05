@@ -54,3 +54,12 @@ npm run compare:html -- examples/webstack-comparison.json output/webstack-compar
 [手动运行 Native HTML comparison](https://github.com/renaesop/axurecraft/actions/workflows/native-comparison.yml)，然后在运行页面下载 `native-html-comparison` artifact。它包含并排截图、差异图、原始截图、机器可读报告及转换诊断；任务摘要展示差异比例。
 
 该任务在 Ubuntu 24.04 上使用 Playwright 安装的 Chromium，因此指标可能与上面的 macOS 历史记录不同。像素差异属于诊断结果，未设置通过阈值；页面异常或图片加载失败会令工作流失败。常规 CI 则使用原创语义夹具，自动验证 HTML / React 行为和独立构建。
+
+
+## 交互状态回归
+
+截图配置现包含初始、第一张卡片悬停、搜索下拉菜单打开、页面滚动，并在 GitHub Actions 同时比较 HTML 和 React 输出。
+
+1440×1000 本地结果：初始 10 像素；悬停 42；菜单打开 11（最大通道差 1）；滚动 500px 后 0。菜单修复前为 571：原生半透明边框的填充与描边分开绘制，现已匹配。1920×3000 初始仍为 20 像素。
+
+这里的 0 只对应已记录的滚动状态，不表示所有控件或完整交互等价。比较器同时记录主要差异区域、页面错误、失败图片请求；不使用差异容差掩盖剩余像素。

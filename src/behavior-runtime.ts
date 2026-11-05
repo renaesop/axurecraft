@@ -1,5 +1,6 @@
 import type { Action, Behavior, Scalar } from './model.ts';
-import { axureBoolean, evaluateExpression, type ExpressionContext } from './expression.ts';
+import { axureBoolean, evaluateExpression, snapshotExpression, type ExpressionContext } from './expression.ts';
+import {motionAxes} from './motion.ts';
 
 export interface BehaviorHost extends ExpressionContext {
   behaviors(id: string): Behavior[];
@@ -49,6 +50,20 @@ export async function executeActions(actions: Action[], host: BehaviorHost, dept
         await fire(action.target, 'selectedchange');
         await fire(action.target, selected ? 'select' : 'unselect');
       }
+    } else if(action.kind==='fire-event'&&action.target){
+      await fire(action.target,String(action.value));
+    } else if(action.repeaterAction){
+      const r=structuredClone(action.repeaterAction);
+      if(r.condition)r.condition=snapshotExpression(r.condition,host);
+      for(const values of [r.values,...r.rows??[]])for(const value of Object.values(values??{}))if(value.kind==='expression')value.expression=snapshotExpression(value.expression,host);
+      await host.apply({...action,repeaterAction:r});
+    } else if(action.motion){
+      const motion={...action.motion};let valid=true;
+      for(const key of motionAxes)if(motion[key]){const value=evaluateExpression(motion[key]!,host);if(value===undefined||!Number.isFinite(Number(value))){valid=false;break;}motion[key]={kind:'literal',value:Number(value)};}
+      if(valid)await host.apply({...action,motion});
+    } else if(action.kind==='link'&&action.expression){
+      const value=evaluateExpression(action.expression,host);
+      if(value!==undefined)await host.apply({...action,value:String(value)});
     } else await host.apply(action);
   }
 }

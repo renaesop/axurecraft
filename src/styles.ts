@@ -77,9 +77,10 @@ export const P = {
   "BULLETED_LIST": 97
 } as const;
 
-export function styleProperties(style: Value | undefined): Map<number, Value> {
+export function styleProperties(style: Value | undefined, overridesOnly=false): Map<number, Value> {
   const out = new Map<number, Value>();
   for (const entry of items(field(style?.body ?? style, 'PropList') ?? field(style, 'Props'))) {
+    if(overridesOnly&&(number(field(entry,'DOAName'))&0x40000000)===0)continue;
     const value = field(entry, 'Value');
     if (value) out.set(number(field(entry, 'DOAName')) & 0x0fffffff, value);
   }
@@ -111,7 +112,7 @@ export function resolveStyle(g: Graph, widget: Value, docGraph?: Graph, includeD
   const seen = new Set<string>();
   const apply = (graph: Graph, style: Value | undefined) => {
     if (!style) return;
-    const props = styleProperties(style);
+    const props = styleProperties(style,!includeDefaults);
     const id = guid(graph, props.get(P.BASE_STYLE) ?? field(field(style.body, 'MatchInfo'), 'Id'));
     if (id && !seen.has(id)) {
       seen.add(id);

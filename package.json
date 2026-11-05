@@ -33,10 +33,13 @@
     "compare:html": "node scripts/compare-html.mjs",
     "test:variables": "tsx scripts/validate-variable-browser.ts",
     "test:ci": "npm run typecheck && npm test",
-    "test:ci:browser": "npm run test:demo && npm run test:variables && npm run test:selection-groups && npm run test:tables",
+    "test:ci:browser": "npm run test:demo && npm run test:variables && npm run test:selection-groups && npm run test:tables && npm run test:navigation && npm run test:motion && npm run test:repeater-data",
     "test:standalone": "node scripts/validate-standalone.mjs",
     "test:tables": "tsx scripts/validate-tables.ts",
-    "audit:controls": "tsx scripts/audit-controls.ts"
+    "audit:controls": "tsx scripts/audit-controls.ts",
+    "test:navigation": "tsx scripts/validate-navigation.ts",
+    "test:motion": "tsx scripts/validate-motion.ts",
+    "test:repeater-data": "tsx scripts/validate-repeater-data.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

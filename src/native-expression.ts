@@ -1,12 +1,12 @@
 import { field, items, number, object, prop, str, type Graph, type Value } from './graph.ts';
-import type { Action, BinaryOperator, UIExpression, GlobalVariable } from './model.ts';
+import type { Action, BinaryOperator, UIExpression, GlobalVariable, WidgetProperty } from './model.ts';
 import { parseFormula } from './expression-parser.ts';
 const zeroGuid = '00000000000000000000000000000000';
 // Axure.Platform.LogicalComparison, verified from the official RP9 API enum.
 const comparisons: Record<number, BinaryOperator> = { 1: '&&', 2: '||', 3: '==', 4: '!=', 5: '>', 6: '<', 7: '>=', 8: '<=' };
 
 /** Compile native expression records into the public UI expression tree. */
-export function nativeExpressions(g: Graph, owner: Value, variables: GlobalVariable[] = []) {
+export function nativeExpressions(g: Graph, owner: Value, variables: GlobalVariable[] = [], targetDataset?:Value) {
   const variableById = (id: number): GlobalVariable | undefined => variables.find(v => v.sourceGuid && v.sourceGuid === g.guids[id - 1]);
   const variableByName = (name: string): GlobalVariable | undefined => variables.find(v => v.name.toLowerCase() === name.toLowerCase());
   const variableArgument = (node: Value | undefined): string => {
@@ -52,6 +52,8 @@ export function nativeExpressions(g: Graph, owner: Value, variables: GlobalVaria
         const value: UIExpression = { kind: 'variable', name: variableArgument(object(g, args[0])) };
         return name === 'GetGlobalVariableValue' ? value : { kind: 'length', value };
       }
+      if(name==='GetWidgetValueLength'&&args.length===1)return {kind:'length',value:{kind:'widget',target:pathArgument(object(g,args[0])),property:'text'}};
+      if (['GetWidget','GetSelectedOption'].includes(name)&&args.length===1)return {kind:'widget',target:pathArgument(object(g,args[0])),property:'text'};
       if (!['GetWidgetText', 'GetCheckState'].includes(name) || args.length !== 1) throw new Error(`Unsupported value function ${name}`);
       return { kind: 'widget', target: pathArgument(object(g, args[0])), property: name === 'GetWidgetText' ? 'text' : 'selected' };
     }
@@ -63,20 +65,25 @@ export function nativeExpressions(g: Graph, owner: Value, variables: GlobalVaria
       const global = (identifier && variableById(number(field(identifier.body, 'Id')))) ?? variableByName(name);
       if (global) return { kind: 'variable', name: global.name };
       if (name.toLowerCase() === 'pagename') return { kind: 'variable', name: 'PageName' };
-      const match = /^(Target|This)\.(text|selected)$/i.exec(name);
+      const match = /^(Target|This)\.(text|selected|x|y|width|height|rotation|visible|disabled)$/i.exec(name);
       if (match) {
         const id = match[1].toLowerCase() === 'this' ? idFor(owner) : actionTarget;
         if (!id) throw new Error('Target expression outside an action');
-        return { kind: 'widget', target: id, property: match[2].toLowerCase() as 'text' | 'selected' };
+        return { kind: 'widget', target: id, property: match[2].toLowerCase() as WidgetProperty };
       }
       const columnMatch = /^(?:Item|TargetItem)\.(.+)$/i.exec(name);
       if (columnMatch) {
         const data = object(g, field(node.body, 'repeater-scope'));
-        if (!parentRepeater || data?.id !== prop(g, parentRepeater, 'Data')?.id) throw new Error('Expression belongs to another repeater dataset');
-        const columns = items(field(data?.body, 'columns')).map(ref => object(g, ref));
+        const parentData=targetDataset??(parentRepeater&&prop(g,parentRepeater,'Data'))??object(g,field(node.body,'TargetRepeaterScope'));
+        if(!parentData)throw new Error('Expression has no owning repeater dataset');
+        const columns = items(field(parentData.body, 'columns')).map(ref => object(g, ref));
         const alias = items(field(node.body, 'variable-identifiers')).map(ref => object(g, ref)).find(v => str(field(v?.body, 'Name')).toLowerCase() === name.toLowerCase());
         const aliasId = number(field(alias?.body, 'Id'), -1);
-        const column = columns.find(c => number(field(c?.body, 'variable-id'), -2) === aliasId) ?? columns.find(c => str(field(c?.body, 'name')).toLowerCase() === columnMatch[1].toLowerCase());
+        const byId=aliasId<0?undefined:columns.find(c=>number(field(c?.body,'variable-id'),-2)===aliasId);
+        // RP9 can retain an old dataset snapshot in a URL expression. The
+        // stable column identifier must still resolve in the owning template.
+        if(!targetDataset&&data?.id!==parentData.id&&!byId&&object(g,field(node.body,'TargetRepeaterScope'))?.id!==parentData.id)throw new Error('Expression belongs to another repeater dataset');
+        const column = byId ?? columns.find(c => str(field(c?.body, 'name')).toLowerCase() === columnMatch[1].toLowerCase());
         if (!column) throw new Error(`Unresolved data column ${name}`);
         return { kind: 'column', columnId: number(field(column.body, 'variable-id')) };
       }

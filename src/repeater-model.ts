@@ -1,6 +1,8 @@
+import {filteredRows,mutateRepeater} from './repeater-actions.ts';
 import {bindExpression} from './expression.ts';
 import {layoutTable} from './table.ts';
-import type {Action,DataCell,Page,RepeaterData,RepeaterSort,RepeaterState,RowExpression,Widget} from './model.ts';
+import {motionAxes} from './motion.ts';
+import type {Action,DataCell,Page,RepeaterData,RepeaterSort,RepeaterState,RowExpression,Widget,WidgetProperty} from './model.ts';
 
 export function evaluateRowExpression(expression:RowExpression,cells:Record<string,DataCell>):DataCell|undefined {
   if(expression.kind==='literal')return {kind:'text',value:expression.value};
@@ -11,6 +13,7 @@ export function evaluateRowExpression(expression:RowExpression,cells:Record<stri
 export const initialRepeaterState=(data:RepeaterData):RepeaterState=>({page:data.layout.startPage,sorts:[],revision:0});
 export function updateRepeaterState(data:RepeaterData,current:RepeaterState|undefined,action:Action):RepeaterState {
   const previousState=current??initialRepeaterState(data);
+  if(action.kind==='repeater-data'&&action.repeaterAction)return mutateRepeater(data,previousState,action.repeaterAction);
   const state={...previousState,revision:previousState.revision+1};
   if(action.kind==='repeater-sort'&&action.sort){
     const previous=state.sorts.find(s=>s.columnId===action.sort!.columnId);
@@ -19,7 +22,7 @@ export function updateRepeaterState(data:RepeaterData,current:RepeaterState|unde
   }
   if(action.kind==='repeater-page'){
     if(!data.layout.pageSize)return state;
-    const last=Math.max(1,Math.ceil(data.rows.length/data.layout.pageSize));
+    const last=Math.max(1,Math.ceil(filteredRows(data,state).length/data.layout.pageSize));
     const next=action.value==='next'?state.page+1:action.value==='previous'?state.page-1:action.value==='last'?last:Number(action.value);
     return {...state,page:Math.max(1,Math.min(last,Number.isFinite(next)?Math.floor(next):1))};
   }
@@ -50,7 +53,7 @@ function mergeSort<T>(items:T[],compare:(a:T,b:T)=>number):T[]{
   let i=0,j=0;while(i<a.length&&j<b.length)result.push(compare(a[i],b[j])>0?b[j++]:a[i++]);return [...result,...a.slice(i),...b.slice(j)];
 }
 export function selectRepeaterRows(data:RepeaterData,state=initialRepeaterState(data)):RepeaterData['rows'] {
-  const rows=state.sorts.length?mergeSort(data.rows,(a,b)=>compareRows(a,b,state.sorts)):data.rows;
+  const filtered=filteredRows(data,state),rows=state.sorts.length?mergeSort(filtered,(a,b)=>compareRows(a,b,state.sorts)):filtered;
   const size=data.layout.pageSize;
   if(size===0)return rows;
   const page=Math.min(Math.max(1,state.page),Math.max(1,Math.ceil(rows.length/size)));
@@ -80,10 +83,17 @@ export function materializeRepeater(id:string,data:RepeaterData,state=initialRep
         if(a.kind==='state'&&typeof a.value==='string')a.value=mapped(a.value);
         const column=(id:number)=>{const cell=row.cells[String(id)];return cell?.kind==='text'?cell.value:undefined;};
         if(a.expression)a.expression=bindExpression(a.expression,mapped,column);
+        if(a.repeaterAction){
+          const r=a.repeaterAction;if(r.selection==='this')r.rowId=row.id;
+          if(r.condition)r.condition=bindExpression(r.condition,mapped,()=>undefined);
+          for(const values of [r.values,...r.rows??[]])for(const value of Object.values(values??{}))if(value.kind==='expression')value.expression=bindExpression(value.expression,mapped,()=>undefined);
+        }
+        if(a.motion)for(const key of motionAxes)if(a.motion[key])a.motion[key]=bindExpression(a.motion[key]!,mapped,column);
         for(const branch of a.branches??[]){if(branch.condition)branch.condition=bindExpression(branch.condition,mapped,column);bindActions(branch.actions);}
       }};
       for(const b of w.behaviors)bindActions(b.actions);
       for(const c of contentArrays(w).flat()){
+        if(c.kind==='frame')c.name=mapped(c.name);
         if(c.kind==='image'&&c.frame)c.frame.id=mapped(c.frame.id);
         if(c.kind==='vector'){
           for(const d of [...c.gradients,...c.markers])d.id=mapped(d.id);
@@ -119,3 +129,13 @@ export function materializeWidgets(widgets:Widget[],states:Record<string,Repeate
 }
 export function materializeTables(widgets:Widget[]):Widget[]{return widgets.map(layoutTable).map(w=>({...w,...(w.children?{children:materializeTables(w.children)}:{}),...(w.states?{states:w.states.map(s=>({...s,widgets:materializeTables(s.widgets)}))}:{})}));}
 export function materializePage(page:Page,states:Record<string,RepeaterState>={}):Page {return {...page,widgets:materializeWidgets(page.widgets,states)};}
+
+export function readRepeaterProperty(data:RepeaterData,state:RepeaterState|undefined,property:WidgetProperty):number|undefined {
+ const current=state??initialRepeaterState(data),count=filteredRows(data,current).length;
+ if(property==='dataCount')return (current.rows??data.rows).length;
+ if(property==='itemCount')return count;
+ if(property==='visibleItemCount')return selectRepeaterRows(data,current).length;
+ if(property==='pageIndex')return current.page;
+ if(property==='pageCount')return data.layout.pageSize?Math.ceil(count/data.layout.pageSize):1;
+ return undefined;
+}

@@ -1,10 +1,13 @@
 import {readGlobalVariables} from './native-variables.ts';
 import {readTable,tableCellCss} from './native-table.ts';
 import {layoutTable} from './table.ts';
+import {inputTypes} from './controls.ts';
+import {readLinkTarget} from './native-link.ts';
 import {flattenWidgets,materializeWidgets} from './repeater-model.ts';
 import { createHash } from 'node:crypto';
 import { type Graph, type Value, parseProject, field, number, str, bool, items, object, prop } from './graph.ts';
 import { P, resolveStyle, resolveStyleDelta, styleProperties, styleToCss, textRunToCss, fillToCss } from './styles.ts';
+import {parseConnector} from './connector.ts';
 import { parseVector, isCssRectangle } from './vector.ts';
 import { readBehaviors } from './interactions.ts';
 import { repeaterRows } from './repeater.ts';
@@ -104,9 +107,9 @@ export function convertRp9(data:Buffer):Conversion {
       // Padding and text flex alignment belong to the overlay, not the outer geometry.
       for(const key of Object.keys(css))if(key.startsWith('padding')||key==='justify-content')delete css[key];
       if(!bool(field(w.body,'VisibleFromSettings'),true))css.display='none';
-      const widget:Widget={id:prefix+idFor(g,w),type,name:str(field(field(w.body,'name-block'),'text')),x,y,width,height,css,content:[],source:sourceRef(g,w),kind:'unsupported',behaviors:readBehaviors(g,w,pageByGuid,issues,!!templateImages||type==='Repeater',variables)};
+      const widget:Widget={id:prefix+idFor(g,w),type,name:str(field(field(w.body,'name-block'),'text')),x,y,width,height,css,content:[],source:sourceRef(g,w),kind:'unsupported',behaviors:readBehaviors(g,w,pageByGuid,issues,!!templateImages||type==='Repeater',variables,asset)};
       if(bool(field(w.body,'Disabled')))widget.disabled=true;
-      if(items(field(w.body,'AdaptiveStyles')).length)issues.push({widget:widget.id,feature:'adaptive-view',detail:'Base view retained; adaptive style overrides and breakpoint switching are not implemented'});
+      if(items(field(w.body,'AdaptiveStyles')).some(ref=>styleProperties(object(g,ref),true).size))issues.push({widget:widget.id,feature:'adaptive-view',detail:'Base view retained; adaptive style overrides and breakpoint switching are not implemented'});
       const paragraphs=items(field(field(field(w.body,'RichTextBlock'),'attributed-string'),'Paragraphs'));
       if(paragraphs.some(p=>items(field(p,'Inlines')).some(run=>field(run,'Link'))))issues.push({widget:widget.id,feature:'inline-link',detail:'Inline hyperlink text and formatting retained; hyperlink-specific interactions are not implemented'});
       if(bool(field(w.body,'Selected')))widget.selected=true;
@@ -127,6 +130,14 @@ export function convertRp9(data:Buffer):Conversion {
         if(number(props.get(P.ROTATION))||number(props.get(P.OPACITY),1)!==1||bool(field(w.body,'Propagate'))){
           issues.push({widget:widget.id,feature:'group-style',detail:'Group rotation, opacity or propagated interaction styles require native verification; child geometry and styles retained'});
         }
+      }else if(type==='InlineFrame'){
+        widget.kind='frame';css.border='0';css.background='transparent';
+        try{
+          const target=readLinkTarget(g,w,prop(g,w,'DefaultTarget'),pageByGuid,variables);
+          const src=target.kind==='link'&&typeof target.value==='string'?target.value:'about:blank';
+          widget.content.push({kind:'frame',src:src||'about:blank',name:widget.id,title:widget.name||'Embedded page',border:bool(field(w.body,'ShowBorder')),scrolling:({0:'no',1:'auto',2:'yes'} as const)[number(field(w.body,'Scrollbars')) as 0|1|2]??'auto'});
+          if(target.expression)widget.behaviors.unshift({event:'load',actions:[{...target,navigation:'frame',target:widget.id}]});
+        }catch(error){issues.push({widget:widget.id,feature:'frame-target',detail:String(error)});}
       }else if(type==='MenuObject'){
         widget.kind='menu';css.background='transparent';css.border='0';
         widget.children=diagram(g,w,depth+1,prefix,templateImages);
@@ -146,7 +157,11 @@ export function convertRp9(data:Buffer):Conversion {
       }else if(type==='ImageMapRegion'){
         widget.kind='hotspot';
         css.background='transparent';css.border='0';
-      }else if(type==='VectorShape'||type==='Line'||type==='Connector'){
+      }else if(type==='Connector'){
+        widget.kind='shape';const connector=parseConnector(g,w,props,widget.id);
+        if(connector){const {graphic,...geometry}=connector;Object.assign(widget,geometry);widget.css={...css,background:'transparent',border:'0'};widget.content.push(graphic);}
+        else issues.push({widget:widget.id,feature:'connector',detail:'Connector geometry is incomplete'});
+      }else if(type==='VectorShape'||type==='Line'){
         widget.kind='shape';
         const cssRectangle=isCssRectangle(w,props,width,height);
         const svg=cssRectangle?undefined:parseVector(w,props,width,height,widget.id);
@@ -161,9 +176,10 @@ export function convertRp9(data:Buffer):Conversion {
         if(!src&&!templateImages?.has(widget.source.guid))issues.push({widget:widget.id,feature:'image',detail:'Image Stream unavailable'});
         const text=richText(w,props,undefined,textOverrides);if(text)widget.content.push(text);
       }else if(type==='DynamicPanel'){
-        if(bool(field(w.body,'is-fixed'))||bool(field(w.body,'is-percent-width')))issues.push({widget:widget.id,feature:'panel-positioning',detail:'Fixed pinning and percentage width are not implemented; authored geometry retained'});
+        widget.panel={percentWidth:bool(field(w.body,'is-percent-width')),fitToContent:bool(field(w.body,'fit-to-content'))};
+        if(bool(field(w.body,'is-fixed')))widget.panel.fixed={horizontal:(['left','center','right'] as const)[number(field(w.body,'horizontal-pin-alignment'))]??'left',vertical:(['top','center','bottom'] as const)[number(field(w.body,'vertical-pin-alignment'))]??'top',marginX:number(field(w.body,'horizontal-pin-margin')),marginY:number(field(w.body,'vertical-pin-margin')),keepInFront:bool(field(w.body,'keep-pinned-in-front'))};
         if(bool(field(w.body,'propagate-styles')))issues.push({widget:widget.id,feature:'panel-style-propagation',detail:'Panel interaction style propagation is not implemented'});
-        widget.kind='panel';panelCount++;css.background='transparent';css.border='0';css.overflow=number(field(w.body,'scrollbars'))?'auto':'hidden';
+        widget.kind='panel';panelCount++;css.background='transparent';css.border='0';css['overflow-x']=[1,3].includes(number(field(w.body,'scrollbars')))?'auto':'hidden';css['overflow-y']=[1,2].includes(number(field(w.body,'scrollbars')))?'auto':'hidden';
         widget.states=[];
         for(const ref of items(field(w.body,'panel-diagrams'))){
           const guid=g.guids[Number(ref.values?.[1])-1];const state=graphByGuid.get(guid);
@@ -206,7 +222,6 @@ export function convertRp9(data:Buffer):Conversion {
           }));
           return {id:String(index),cells};
         })};
-        issues.push({widget:widget.id,feature:'repeater-runtime',detail:'Template/data binding, sorting and pagination supported; filtering, data mutation and expressions outside the supported UI AST still require implementation'});
       }else if(['TextBox','TextArea','RadioButton','Checkbox','CheckBox','ComboBox','DropList','ListBox','Button'].includes(type)){
         widget.kind='control';
         const control:FormControl={kind:'control',control:type==='TextArea'?'textarea':type==='RadioButton'?'radio':type==='Checkbox'||type==='CheckBox'?'checkbox':type==='ComboBox'||type==='DropList'||type==='ListBox'?'select':type==='Button'?'button':'text',label:widget.name||'Text input',value:str(field(field(w.body,'TextBlock'),'text')),placeholder:str(field(w.body,'PlaceholderText')),disabled:bool(field(w.body,'Disabled')),readOnly:bool(field(w.body,'ReadOnly'))};
@@ -225,8 +240,12 @@ export function convertRp9(data:Buffer):Conversion {
         }
         const maxLength=number(field(w.body,'MaxLength'),2147483647);
         if(maxLength>=0&&maxLength<2147483647)control.maxLength=maxLength;
-        if(number(field(w.body,'Type')))issues.push({widget:widget.id,feature:'form-input-type',detail:`Native input type ${number(field(w.body,'Type'))} is not mapped; rendered as text`});
-        if(bool(field(w.body,'HideHintOnFocus')))issues.push({widget:widget.id,feature:'form-hint-focus',detail:'Hide hint on focus is not implemented'});
+        if(control.control==='text'){
+          const inputType=inputTypes[number(field(w.body,'Type'))];
+          if(inputType)control.inputType=inputType;
+          else issues.push({widget:widget.id,feature:'form-input-type',detail:`Unknown native input type ${number(field(w.body,'Type'))}`});
+        }
+        if(bool(field(w.body,'HideHintOnFocus')))control.hideHintOnFocus=true;
         const hintStyle=object(g,field(props.get(P.IX_STYLES),'Hint'));
         if(hintStyle)css['--rp-hint-color']=styleToCss(resolveStyleDelta(g,hintStyle,doc)).color??'rgba(153,153,153,1)';
         widget.content.push(control);
@@ -235,7 +254,7 @@ export function convertRp9(data:Buffer):Conversion {
         issues.push({widget:widget.id,feature:'widget-type',detail:`Unsupported widget ${type}`});
       }
       for(const [variant,variantStyle]of [['disabled',disabledStyle],['selected',selectedStyle]] as const){
-        if(!variantStyle||!styleProperties(variantStyle).size)continue;
+        if(!variantStyle||!styleProperties(variantStyle,true).size)continue;
         if(!['shape','image','control'].includes(widget.kind)){
           issues.push({widget:widget.id,feature:variant+'-appearance',detail:`${variant} appearance for this container/widget kind requires native verification`});
         }else{
@@ -244,9 +263,9 @@ export function convertRp9(data:Buffer):Conversion {
           for(const key of Object.keys(appearanceCss))if(key.startsWith('padding')||key==='justify-content'||key==='display')delete appearanceCss[key];
           const content=structuredClone(widget.content);
           if(widget.kind==='shape'){
-            const vector=isCssRectangle(w,props,width,height)?undefined:parseVector(w,merged,width,height,widget.id+'-'+variant);
+            const vector=isCssRectangle(w,merged,width,height)?undefined:parseVector(w,merged,width,height,widget.id+'-'+variant);
             const index=content.findIndex(c=>c.kind==='vector');
-            if(vector&&index>=0)content[index]=vector;
+            if(vector){if(index>=0)content[index]=vector;else content.unshift(vector);}else if(index>=0)content.splice(index,1);
             if(vector){delete appearanceCss.background;delete appearanceCss['border-width'];delete appearanceCss['border-style'];delete appearanceCss['border-color'];}
           }
           if(widget.kind==='image'&&delta.has(P.IMAGE)){

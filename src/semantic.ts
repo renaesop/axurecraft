@@ -1,4 +1,7 @@
 import type { Project } from './model.ts';
+import {inputTypes} from './controls.ts';
+import {isNavigationUrl} from './navigation.ts';
+import {motionAxes} from './motion.ts';
 
 /** Validate the public JSON boundary instead of trusting a TypeScript cast. */
 export function parseSemanticProject(json:string):Project {
@@ -19,7 +22,7 @@ export function parseSemanticProject(json:string):Project {
       if(!['string','number','boolean'].includes(typeof e.value))fail(path+'.value','scalar');
       if(typeof e.value==='number')number(e.value,path+'.value');
     }else if(e.kind==='widget'){
-      string(e.target,path+'.target');if(!['text','selected'].includes(string(e.property,path+'.property')))fail(path+'.property','text or selected');
+      string(e.target,path+'.target');if(!['text','selected','x','y','width','height','rotation','visible','disabled','itemCount','visibleItemCount','dataCount','pageCount','pageIndex'].includes(string(e.property,path+'.property')))fail(path+'.property','text or selected');
     }else if(e.kind==='variable')string(e.name,path+'.name');
     else if(e.kind==='length')child(e.value,'value');
     else if(e.kind==='column')number(e.columnId,path+'.columnId');
@@ -39,15 +42,31 @@ export function parseSemanticProject(json:string):Project {
     if(depth>64)fail(path,'action nesting <= 64');
     array(v,path).forEach((value,i)=>{
       const p=path+'.'+i,a=object(value,p);
-      if(!['link','back','refresh','show','hide','toggle','state','enable','wait','repeater-sort','repeater-page','branch','set-text','set-selected','set-variable'].includes(string(a.kind,p+'.kind')))fail(p+'.kind','supported action kind');
+      if(!['link','back','refresh','show','hide','toggle','state','enable','wait','move','resize','rotate','repeater-data','repeater-sort','repeater-page','focus','fire-event','branch','set-text','set-selected','set-variable'].includes(string(a.kind,p+'.kind')))fail(p+'.kind','supported action kind');
       if(a.target!==undefined)string(a.target,p+'.target');
       if(a.value!==undefined&&!['string','number','boolean'].includes(typeof a.value))fail(p+'.value','scalar action value');
       if(typeof a.value==='number')number(a.value,p+'.value');
       if(a.kind==='set-text'||a.kind==='set-selected'){string(a.target,p+'.target');uiExpression(a.expression,p+'.expression');}
       if(a.kind==='set-variable'){if(!string(a.variable,p+'.variable'))fail(p+'.variable','nonempty variable name');uiExpression(a.expression,p+'.expression');}
       if(a.includeVariables!==undefined)boolean(a.includeVariables,p+'.includeVariables');
+      if(a.navigation!==undefined&&!['current','new','popup','parent','frame','parent-frame'].includes(string(a.navigation,p+'.navigation')))fail(p+'.navigation','navigation mode');
+      if(a.windowFeatures!==undefined)string(a.windowFeatures,p+'.windowFeatures');
+      if(a.loop!==undefined)boolean(a.loop,p+'.loop');
+      if(a.transition!==undefined){const t=object(a.transition,p+'.transition');for(const key of ['show','hide','showDuration','hideDuration'])if(number(t[key],p+'.transition.'+key)<0)fail(p+'.transition.'+key,'nonnegative number');if(t.bringToFront!==undefined)boolean(t.bringToFront,p+'.transition.bringToFront');}
+      if(a.motion!==undefined){const m=object(a.motion,p+'.motion');for(const key of motionAxes)if(m[key]!==undefined)uiExpression(m[key],p+'.motion.'+key);for(const key of ['relative','clockwise'])if(m[key]!==undefined)boolean(m[key],p+'.motion.'+key);if(m.anchor!==undefined)string(m.anchor,p+'.motion.anchor');for(const key of ['duration','easing'])if(m[key]!==undefined&&number(m[key],p+'.motion.'+key)<0)fail(p+'.motion.'+key,'nonnegative number');}
+      if(a.kind==='link'&&a.expression!==undefined)uiExpression(a.expression,p+'.expression');
       if(a.kind==='branch')array(a.branches,p+'.branches').forEach((value,j)=>{const b=object(value,p+'.branch');if(b.condition!==undefined)uiExpression(b.condition,p+'.condition');actions(b.actions,p+'.branches.'+j+'.actions',depth+1);});
-      if(a.kind==='repeater-sort'){const sort=object(a.sort,p+'.sort');number(sort.columnId,p+'.columnId');boolean(sort.ascending,p+'.ascending');string(sort.label,p+'.label');if(!['number','text'].includes(string(sort.type,p+'.type')))fail(p+'.type','number or text');if(sort.toggle!==undefined)boolean(sort.toggle,p+'.toggle');}
+      if(a.kind==='repeater-data'){
+        string(a.target,p+'.target');const r=object(a.repeaterAction,p+'.repeaterAction');
+        if(!['filter','remove-filter','remove-sort','add','delete','update','mark'].includes(string(r.operation,p+'.operation')))fail(p+'.operation','repeater operation');
+        for(const key of ['label','rowId'])if(r[key]!==undefined)string(r[key],p+'.'+key);
+        for(const key of ['clear','mark'])if(r[key]!==undefined)boolean(r[key],p+'.'+key);
+        if(r.selection!==undefined&&!['this','all','rule','marked'].includes(string(r.selection,p+'.selection')))fail(p+'.selection','row selector');
+        if(r.condition!==undefined)uiExpression(r.condition,p+'.condition');
+        const values=(v:unknown)=>{for(const [id,value]of Object.entries(object(v,p+'.values'))){if(!/^\d+$/.test(id))fail(p+'.values','numeric column IDs');const c=object(value,p+'.cell');if(c.kind==='expression')uiExpression(c.expression,p+'.expression');else if(c.kind==='text')string(c.value,p+'.value');else if(c.kind==='image'){if(c.asset!==null)asset(c.asset,p+'.asset');}else fail(p+'.cell','text, image or expression');}};
+        if(r.values!==undefined)values(r.values);if(r.rows!==undefined)array(r.rows,p+'.rows').forEach(values);
+      }
+      if(a.kind==='repeater-sort'){const sort=object(a.sort,p+'.sort');number(sort.columnId,p+'.columnId');boolean(sort.ascending,p+'.ascending');string(sort.label,p+'.label');if(!['number','text','text-case'].includes(string(sort.type,p+'.type')))fail(p+'.type','number or text');if(sort.toggle!==undefined)boolean(sort.toggle,p+'.toggle');}
     });
   };
   const behaviors=(v:unknown,path:string):void=>{array(v,path).forEach((value,i)=>{
@@ -58,6 +77,11 @@ export function parseSemanticProject(json:string):Project {
   const content=(v:unknown,path:string):void=>{
     const c=object(v,path);
     if(c.kind==='text')return text(c,path);
+    if(c.kind==='frame'){
+      for(const k of ['src','name','title'])string(c[k],path+'.'+k);
+      if(!isNavigationUrl(String(c.src)))fail(path+'.src','navigation URL');
+      boolean(c.border,path+'.border');if(!['auto','yes','no'].includes(string(c.scrolling,path+'.scrolling')))fail(path+'.scrolling','scroll mode');return;
+    }
     if(c.kind==='image'){
       if(c.asset!==null)asset(c.asset,path+'.asset');string(c.alt,path+'.alt');
       if(c.frame!==undefined){const f=object(c.frame,path+'.frame');for(const k of ['id','borderColor'])string(f[k],path+'.frame.'+k);for(const k of ['width','height','radius','borderWidth'])if(number(f[k],path+'.frame.'+k)<0)fail(path+'.frame.'+k,'nonnegative number');}
@@ -75,6 +99,8 @@ export function parseSemanticProject(json:string):Project {
       for(const k of ['disabled','readOnly'])boolean(c[k],path+'.'+k);
       if(c.checked!==undefined)boolean(c.checked,path+'.checked');if(c.group!==undefined)string(c.group,path+'.group');if(c.richLabel!==undefined)text(c.richLabel,path+'.richLabel');
       if(c.listBox!==undefined)boolean(c.listBox,path+'.listBox');
+      if(c.hideHintOnFocus!==undefined)boolean(c.hideHintOnFocus,path+'.hideHintOnFocus');
+      if(c.inputType!==undefined&&!(inputTypes as readonly string[]).includes(string(c.inputType,path+'.inputType')))fail(path+'.inputType','supported HTML input type');
       if(c.maxLength!==undefined&&(!Number.isInteger(c.maxLength)||number(c.maxLength,path+'.maxLength')<0))fail(path+'.maxLength','nonnegative integer');
       if(c.options!==undefined)array(c.options,path+'.options').forEach(value=>{const o=object(value,path+'.option');string(o.label,path+'.label');string(o.value,path+'.value');});return;
     }
@@ -91,7 +117,7 @@ export function parseSemanticProject(json:string):Project {
       for(const k of ['type','name'])string(w[k],p+'.'+k);
       for(const k of ['x','y','width','height'])number(w[k],p+'.'+k);
       if(Number(w.width)<0||Number(w.height)<0)fail(p,'nonnegative size');
-      if(!['group','shape','image','hotspot','panel','repeater','table','menu','control','unsupported'].includes(string(w.kind,p+'.kind')))fail(p+'.kind','semantic widget kind');
+      if(!['group','shape','image','hotspot','panel','repeater','table','menu','frame','control','unsupported'].includes(string(w.kind,p+'.kind')))fail(p+'.kind','semantic widget kind');
       css(w.css,p+'.css');source(w.source,p+'.source');behaviors(w.behaviors,p+'.behaviors');array(w.content,p+'.content').forEach((c,j)=>content(c,p+'.content.'+j));
       if(w.disabled!==undefined)boolean(w.disabled,p+'.disabled');
       if(w.selected!==undefined)boolean(w.selected,p+'.selected');
@@ -104,6 +130,7 @@ export function parseSemanticProject(json:string):Project {
           if(appearance.content!==undefined)array(appearance.content,p+'.variants.'+name+'.content').forEach((c,j)=>content(c,p+'.variants.'+name+'.content.'+j));
         }
       }
+      if(w.panel!==undefined){const l=object(w.panel,p+'.panel');for(const key of ['percentWidth','fitToContent'])if(l[key]!==undefined)boolean(l[key],p+'.panel.'+key);if(l.fixed!==undefined){const f=object(l.fixed,p+'.panel.fixed');if(!['left','center','right'].includes(string(f.horizontal,p+'.horizontal'))||!['top','center','bottom'].includes(string(f.vertical,p+'.vertical')))fail(p+'.panel.fixed','pin alignments');number(f.marginX,p+'.marginX');number(f.marginY,p+'.marginY');boolean(f.keepInFront,p+'.keepInFront');}}
       if(w.children!==undefined)widgets(w.children,p+'.children',ids,depth+1);
       if(w.kind==='table'||w.table!==undefined){
         if(w.kind!=='table')fail(p+'.kind','table when table metadata is present');

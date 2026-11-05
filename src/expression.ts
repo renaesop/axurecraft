@@ -1,7 +1,8 @@
-import type { UIExpression, Scalar } from './model.ts';
+import type { UIExpression, Scalar, WidgetProperty } from './model.ts';
 
 export interface ExpressionContext {
-  readWidget(id: string, property: 'text' | 'selected'): Scalar | undefined;
+  readWidget(id: string, property: WidgetProperty): Scalar | undefined;
+  readColumn?(id:number):Scalar|undefined;
   readVariable?(name: string): string;
 }
 
@@ -20,7 +21,7 @@ export function evaluateExpression(expr: UIExpression, context: ExpressionContex
   if (expr.kind === 'variable') return context.readVariable?.(expr.name);
   if (expr.kind === 'length') { const value = evaluate(expr.value); return value === undefined ? undefined : String(value).length; }
   // Columns are bound to row literals by materializeRepeater before execution.
-  if (expr.kind === 'column') return undefined;
+  if (expr.kind === 'column') return context.readColumn?.(expr.columnId);
   if (expr.kind === 'concat') {
     const parts = expr.parts.map(evaluate);
     return parts.some(v => v === undefined) ? undefined : parts.join('');
@@ -75,4 +76,16 @@ export function bindExpression(expr: UIExpression, target: (id: string) => strin
     case 'concat': return { ...expr, parts: expr.parts.map(e => bindExpression(e, target, column)) };
     default: return expr;
   }
+}
+
+/** Snapshot external values when a repeater action starts; columns stay row-dependent. */
+export function snapshotExpression(expr:UIExpression,context:ExpressionContext):UIExpression {
+ if(expr.kind==='widget'||expr.kind==='variable'){const value=evaluateExpression(expr,context);return value===undefined?expr:{kind:'literal',value};}
+ const visit=(e:UIExpression)=>snapshotExpression(e,context);
+ if(expr.kind==='binary')return {...expr,left:visit(expr.left),right:visit(expr.right)};
+ if(expr.kind==='unary')return {...expr,operand:visit(expr.operand)};
+ if(expr.kind==='length')return {...expr,value:visit(expr.value)};
+ if(expr.kind==='concat')return {...expr,parts:expr.parts.map(visit)};
+ if(expr.kind==='call')return {...expr,receiver:visit(expr.receiver),args:expr.args.map(visit)};
+ return expr;
 }

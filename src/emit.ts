@@ -21,7 +21,7 @@ for(const [name,bytes] of assets)writeFileSync(join(output,name),bytes);
 for(const page of project.pages)writeFileSync(join(output,page.file),pageHtml(page,project.variables));
 const src=fileURLToPath(new URL('.',import.meta.url));
 await build({entryPoints:[join(src,'runtime.ts')],outfile:join(output,'runtime.js'),bundle:true,format:'iife',platform:'browser',target:'es2022',sourcemap:true});
-for(const file of ['runtime.ts','repeater-model.ts','render-tree.ts','widget-state.ts','dom-content.ts','expression.ts','behavior-runtime.ts','widget-dom.ts','selection.ts','variables.ts'])copyFileSync(join(src,file),join(output,'source',file));
+for(const file of ['table.ts','runtime.ts','repeater-model.ts','render-tree.ts','widget-state.ts','dom-content.ts','expression.ts','behavior-runtime.ts','widget-dom.ts','selection.ts','variables.ts'])copyFileSync(join(src,file),join(output,'source',file));
 copyFileSync(join(src,'model.ts'),join(output,'source/model.ts'));
 writeFileSync(join(output,'source/project.ts'),`import type { Project } from './model.ts';\nexport const project: Project = ${JSON.stringify(project,null,2)};\n`);
 writeFileSync(join(output,'project.json'),JSON.stringify(project,null,2)+'\n');

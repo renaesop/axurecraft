@@ -1,5 +1,5 @@
 import {reactStyle,reactAttribute as attributeName} from './react-props.ts';
-import {materializePage} from './repeater-model.ts';
+import {materializePage,materializeTables} from './repeater-model.ts';
 import {describeWidgets} from './widget-state.ts';
 export {reactStyle} from './react-props.ts';
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
@@ -20,9 +20,10 @@ export function elementJsx(node:ElementNode|string,ownerId:string,level=0):strin
   const richText=node.attrs.class==='rp-text';
   const tag=control?'RpControl':richText?'RpText':node.tag;
   const attrs={...node.attrs};
+  if(node.tag==='option')delete attrs.selected; // The select owns defaultValue in React.
   let children=node.children;
   if(node.tag==='textarea'){attrs.value=node.children.filter(v=>typeof v==='string').join('');children=[];}
-  const parts=Object.entries(attrs).filter(([,v])=>v!==undefined).map(([key,value])=>`${attributeName(key)}={${json(value)}}`);
+  const parts=Object.entries(attrs).filter(([,v])=>v!==undefined).map(([key,value])=>`${node.tag==='option'&&key==='value'?'value':attributeName(key)}={${json(value)}}`);
   if(control)parts.unshift(`ownerId={${json(ownerId)}}`,`as={${json(node.tag)}}`);
   if(richText)parts.unshift(`ownerId={${json(ownerId)}}`);
   if(node.css)parts.push(`style={${json(reactStyle(node.css))}}`);
@@ -52,7 +53,9 @@ ${indent}    {(row) => <>
 ${w.repeater.template.map((c,i)=>widgetJsx(c,level+3,`row.widgets[${i}]`)).join('\n')}
 ${indent}    </>}
 ${indent}  </RpRepeater>`]:[];
-  const children=[...content,...repeated,...(w.children??[]).map((c,i)=>widgetJsx(c,level+1,ref?`(${ref}.children ?? [])[${i}]`:undefined)),...(w.states??[]).map((s,i)=>`${indent}  <RpState ownerId={${id}} id={${ref?`(${ref}.states ?? [])[${i}].id`:json(s.id)}} initial={${i===0}} style={${json(reactStyle(s.css??{}))}}>
+  const childJsx=(w.children??[]).map((c,i)=>widgetJsx(c,level+1,ref?`(${ref}.children ?? [])[${i}]`:undefined));
+  const descendants=w.table?w.table.rowHeights.map((_,i)=>`${indent}  <div role="row" style={{display:'contents'}}>\n${childJsx.slice(i*w.table!.columnWidths.length,(i+1)*w.table!.columnWidths.length).join('\n')}\n${indent}  </div>`):childJsx;
+  const children=[...content,...repeated,...descendants,...(w.states??[]).map((s,i)=>`${indent}  <RpState ownerId={${id}} id={${ref?`(${ref}.states ?? [])[${i}].id`:json(s.id)}} initial={${i===0}} style={${json(reactStyle(s.css??{}))}}>
 ${s.widgets.map((c,j)=>widgetJsx(c,level+2,ref?`(${ref}.states ?? [])[${i}].widgets[${j}]`:undefined)).join('\n')}
 ${indent}  </RpState>`)];
   return `${indent}<RpWidget ${props}>
@@ -65,6 +68,7 @@ export function pageDefinition(page:Page,variables:GlobalVariable[]=[]):PageDefi
 }
 /** Emits concrete, editable JSX elements; no innerHTML, iframe or serialized HTML string. */
 export function pageToJsx(page:Page,componentName='Prototype',variables:GlobalVariable[]=[]):string {
+  page={...page,widgets:materializeTables(page.widgets)};
   if(!/^[A-Z][A-Za-z0-9_]*$/.test(componentName))throw new Error('Invalid component name');
   return `import { PrototypePage, RpWidget, RpState, RpControl, RpText, RpRepeater, RpContent, RpAppearance, widgetCss, widgetDisabledCss, widgetSelectedCss } from './runtime';\n\nconst definition = ${JSON.stringify(pageDefinition(page,variables),null,2)};\n\nexport default function ${componentName}() {\n  return (\n    <PrototypePage definition={definition}>\n${page.widgets.map(w=>widgetJsx(w,3)).join('\n')}\n    </PrototypePage>\n  );\n}\n`;
 }
@@ -78,7 +82,7 @@ export async function writeReactProject(project:Project,assets:Map<string,Buffer
   }
   const src=fileURLToPath(new URL('.',import.meta.url));
   copyFileSync(join(src,'react-runtime.tsx'),join(source,'runtime.tsx'));copyFileSync(join(src,'model.ts'),join(source,'model.ts'));
-  for(const file of ['repeater-model.ts','react-props.ts','render-tree.ts','widget-state.ts','expression.ts','behavior-runtime.ts','widget-dom.ts','selection.ts','variables.ts','page-layout.ts'])copyFileSync(join(src,file),join(source,file));
+  for(const file of ['table.ts','repeater-model.ts','react-props.ts','render-tree.ts','widget-state.ts','expression.ts','behavior-runtime.ts','widget-dom.ts','selection.ts','variables.ts','page-layout.ts'])copyFileSync(join(src,file),join(source,file));
   const entry=project.pages.map((_,i)=>`import Page${i+1} from './Page${i+1}.jsx';`).join('\n')+`\nimport {createRoot} from 'react-dom/client';\nconst pages={${project.pages.map((p,i)=>`${json(p.file)}:Page${i+1}`).join(',')}};\nconst Page=pages[decodeURIComponent(location.pathname.split('/').pop())]??Page1;\ncreateRoot(document.getElementById('root')).render(<Page/>);\n`;
   writeFileSync(join(source,'main.jsx'),entry);
   const req=createRequire(import.meta.url);

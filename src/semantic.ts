@@ -58,7 +58,11 @@ export function parseSemanticProject(json:string):Project {
   const content=(v:unknown,path:string):void=>{
     const c=object(v,path);
     if(c.kind==='text')return text(c,path);
-    if(c.kind==='image'){asset(c.asset,path+'.asset');string(c.alt,path+'.alt');return;}
+    if(c.kind==='image'){
+      if(c.asset!==null)asset(c.asset,path+'.asset');string(c.alt,path+'.alt');
+      if(c.frame!==undefined){const f=object(c.frame,path+'.frame');for(const k of ['id','borderColor'])string(f[k],path+'.frame.'+k);for(const k of ['width','height','radius','borderWidth'])if(number(f[k],path+'.frame.'+k)<0)fail(path+'.frame.'+k,'nonnegative number');}
+      return;
+    }
     if(c.kind==='vector'){
       number(c.width,path+'.width');number(c.height,path+'.height');
       array(c.paths,path+'.paths').forEach(value=>{const p=object(value,path+'.path');for(const k of ['data','fill'])string(p[k],path+'.'+k);number(p.fillOpacity,path+'.fillOpacity');for(const k of ['stroke','dashArray','markerStart','markerEnd'])if(p[k]!==undefined)string(p[k],path+'.'+k);for(const k of ['strokeOpacity','strokeWidth'])if(p[k]!==undefined)number(p[k],path+'.'+k);});
@@ -70,6 +74,8 @@ export function parseSemanticProject(json:string):Project {
       for(const k of ['label','value','placeholder'])string(c[k],path+'.'+k);
       for(const k of ['disabled','readOnly'])boolean(c[k],path+'.'+k);
       if(c.checked!==undefined)boolean(c.checked,path+'.checked');if(c.group!==undefined)string(c.group,path+'.group');if(c.richLabel!==undefined)text(c.richLabel,path+'.richLabel');
+      if(c.listBox!==undefined)boolean(c.listBox,path+'.listBox');
+      if(c.maxLength!==undefined&&(!Number.isInteger(c.maxLength)||number(c.maxLength,path+'.maxLength')<0))fail(path+'.maxLength','nonnegative integer');
       if(c.options!==undefined)array(c.options,path+'.options').forEach(value=>{const o=object(value,path+'.option');string(o.label,path+'.label');string(o.value,path+'.value');});return;
     }
     fail(path+'.kind','text, image, vector or control');
@@ -85,7 +91,7 @@ export function parseSemanticProject(json:string):Project {
       for(const k of ['type','name'])string(w[k],p+'.'+k);
       for(const k of ['x','y','width','height'])number(w[k],p+'.'+k);
       if(Number(w.width)<0||Number(w.height)<0)fail(p,'nonnegative size');
-      if(!['group','shape','image','hotspot','panel','repeater','control','unsupported'].includes(string(w.kind,p+'.kind')))fail(p+'.kind','semantic widget kind');
+      if(!['group','shape','image','hotspot','panel','repeater','table','menu','control','unsupported'].includes(string(w.kind,p+'.kind')))fail(p+'.kind','semantic widget kind');
       css(w.css,p+'.css');source(w.source,p+'.source');behaviors(w.behaviors,p+'.behaviors');array(w.content,p+'.content').forEach((c,j)=>content(c,p+'.content.'+j));
       if(w.disabled!==undefined)boolean(w.disabled,p+'.disabled');
       if(w.selected!==undefined)boolean(w.selected,p+'.selected');
@@ -99,6 +105,14 @@ export function parseSemanticProject(json:string):Project {
         }
       }
       if(w.children!==undefined)widgets(w.children,p+'.children',ids,depth+1);
+      if(w.kind==='table'||w.table!==undefined){
+        if(w.kind!=='table')fail(p+'.kind','table when table metadata is present');
+        const t=object(w.table,p+'.table');
+        const tracks=['rowHeights','columnWidths'].map(key=>{const values=array(t[key],p+'.table.'+key);if(!values.length)fail(p+'.table.'+key,'nonempty tracks');for(const value of values)if(number(value,p+'.table.'+key)<0)fail(p+'.table.'+key,'nonnegative track');return values;});
+        const cells=array(w.children,p+'.children');
+        if(tracks[0].length*tracks[1].length!==cells.length)fail(p+'.children','one cell per row and column');
+        for(const cell of cells)if(object(cell,p+'.cell').type!=='TableCell')fail(p+'.children','TableCell widgets in row-major order');
+      }
       if(w.states!==undefined)array(w.states,p+'.states').forEach(value=>{const s=object(value,p+'.state');string(s.id,p+'.id');string(s.name,p+'.name');if(s.css!==undefined)css(s.css,p+'.css');widgets(s.widgets,p+'.widgets',ids,depth+1);});
       if(w.repeater!==undefined){
         if(w.children!==undefined)fail(p+'.children','repeater templates and data only, no stale expanded children');

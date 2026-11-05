@@ -89,8 +89,10 @@ export interface VectorGraphic {
 }
 export interface ImageContent {
     kind: 'image';
-    asset: string;
+    /** Null retains an empty repeater image slot and its frame until row binding. */
+    asset: string | null;
     alt: string;
+    frame?: { id: string; width: number; height: number; radius: number; borderWidth: number; borderColor: string };
 }
 export interface FormControl {
     kind: 'control';
@@ -102,6 +104,8 @@ export interface FormControl {
     readOnly: boolean;
     checked?: boolean;
     group?: string;
+    listBox?: boolean;
+    maxLength?: number;
     richLabel?: RichText;
     options?: {
         label: string;
@@ -206,7 +210,9 @@ export interface Widget {
     selected?: boolean;
     selectionGroup?: string;
     variants?: { disabled?: WidgetAppearance; selected?: WidgetAppearance };
-    kind: 'group' | 'shape' | 'image' | 'hotspot' | 'panel' | 'repeater' | 'control' | 'unsupported';
+    kind: 'group' | 'shape' | 'image' | 'hotspot' | 'panel' | 'repeater' | 'table' | 'menu' | 'control' | 'unsupported';
+    /** Fixed native table tracks; children are cells in row-major order. */
+    table?: { rowHeights: number[]; columnWidths: number[] };
     repeater?: RepeaterData;
     /** Derived view only: materializeRepeater adds this; conversion does not serialize it. */
     instance?: {

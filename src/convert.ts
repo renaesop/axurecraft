@@ -1,13 +1,15 @@
 import {readGlobalVariables} from './native-variables.ts';
+import {readTable,tableCellCss} from './native-table.ts';
+import {layoutTable} from './table.ts';
 import {flattenWidgets,materializeWidgets} from './repeater-model.ts';
 import { createHash } from 'node:crypto';
 import { type Graph, type Value, parseProject, field, number, str, bool, items, object, prop } from './graph.ts';
 import { P, resolveStyle, resolveStyleDelta, styleProperties, styleToCss, textRunToCss, fillToCss } from './styles.ts';
-import { parseVector } from './vector.ts';
+import { parseVector, isCssRectangle } from './vector.ts';
 import { readBehaviors } from './interactions.ts';
 import { repeaterRows } from './repeater.ts';
 import { nestGroups, visibleDiagramBounds, visibleDiagramLeft } from './groups.ts';
-import type { Project, Widget, Page, ConversionIssue, RichText, FormControl, SourceReference } from './model.ts';
+import type { Project, Widget, Page, ConversionIssue, RichText, FormControl, SourceReference, ImageContent } from './model.ts';
 
 export interface Conversion { project:Project; assets:Map<string,Buffer> }
 export function convertRp9(data:Buffer):Conversion {
@@ -55,7 +57,8 @@ export function convertRp9(data:Buffer):Conversion {
     if(bool(field(w.body,'AutoFitWidth')))css['white-space']='pre';
     const overrideCss=styleToCss(textOverrides);
     const runKeys=['font-family','font-size','font-weight','font-style','color','letter-spacing','text-decoration'];
-    const authoredRuns=paragraphs.flatMap(p=>items(field(p,'Inlines'))).map(textRunToCss);
+    const inlineRuns=(nodes:Value[]):Value[]=>nodes.flatMap(run=>field(run,'Inlines')?inlineRuns(items(field(run,'Inlines'))):[run]);
+    const authoredRuns=paragraphs.flatMap(p=>inlineRuns(items(field(p,'Inlines')))).map(textRunToCss);
     // Uniform attributed-string values are the cached text baseline. Widget
     // style overrides (including named styles) are authoritative for those.
     const uniform=new Set(runKeys.filter(key=>authoredRuns.length>0&&authoredRuns.every(run=>run[key]===authoredRuns[0][key])));
@@ -65,13 +68,13 @@ export function convertRp9(data:Buffer):Conversion {
       const align=['left','center','right','justify'][number(field(p,'HorizontalAlignment'))]??'left';
       const lineSpacing=number(field(p,'LineSpacing'));
       const css:Record<string,string>={'text-align':overrideCss['text-align']??align};if(lineSpacing>0)css['line-height']=`${lineSpacing*4/3}px`;
-      const inlines=items(field(p,'Inlines'));
+      const inlines=inlineRuns(items(field(p,'Inlines')));
       const runs=override===undefined?inlines.map(run=>({text:str(field(run,'Text')),css:textRunToCss(run)})):[{text:override,css:inlines[0]?textRunToCss(inlines[0]):{}}];
       for(const run of runs)for(const key of runKeys){if(uniform.has(key)&&resolvedTextCss[key]!==undefined)delete run.css[key];else if(overrideCss[key]!==undefined)run.css[key]=overrideCss[key];}
       return {css,runs};
     })};
     const text=override??str(field(block,'text'));
-    return text||w.className==='Axure:DiagramObject:VectorShape'?{kind:'text',css,paragraphs:[{css:{},runs:[{text,css:{}}]}]}:undefined;
+    return text||['Axure:DiagramObject:VectorShape','Axure:DiagramObject:TableCell'].includes(w.className??'')?{kind:'text',css,paragraphs:[{css:{},runs:[{text,css:{}}]}]}:undefined;
   };
   const sourceRef=(g:Graph,w:Value):SourceReference=>({record:g.record.index,objectId:w.id??-1,guid:g.guids[(w.id??0)-1]??'',className:w.className??''});
   // Paint image borders over the full-size image; CSS box borders would shrink
@@ -82,7 +85,10 @@ export function convertRp9(data:Buffer):Conversion {
     css['--rp-image-border-style']=css['border-style']??'solid';
     css['--rp-image-radius']=css['border-radius']??'0px';
     css['border-width']='0px';
+    css.background='transparent';
+    css['--rp-image-frame-display']='none';
   };
+  const imageFrame=(css:Record<string,string>,width:number,height:number,id:string):ImageContent['frame']=>({id:id+'-image-mask',width,height,radius:parseFloat(css['--rp-image-radius'])||0,borderWidth:css['--rp-image-border-style']==='none'?0:parseFloat(css['--rp-image-border-width'])||0,borderColor:css['--rp-image-border-color']});
   let widgetCount=0,panelCount=0,repeaterCount=0;
   function diagram(g:Graph,d:Value|undefined,depth=0,prefix='',templateImages?:Set<string>):Widget[]{
     if(depth>20){issues.push({feature:'nesting',detail:'Diagram nesting exceeds 20'});return [];}
@@ -100,6 +106,9 @@ export function convertRp9(data:Buffer):Conversion {
       if(!bool(field(w.body,'VisibleFromSettings'),true))css.display='none';
       const widget:Widget={id:prefix+idFor(g,w),type,name:str(field(field(w.body,'name-block'),'text')),x,y,width,height,css,content:[],source:sourceRef(g,w),kind:'unsupported',behaviors:readBehaviors(g,w,pageByGuid,issues,!!templateImages||type==='Repeater',variables)};
       if(bool(field(w.body,'Disabled')))widget.disabled=true;
+      if(items(field(w.body,'AdaptiveStyles')).length)issues.push({widget:widget.id,feature:'adaptive-view',detail:'Base view retained; adaptive style overrides and breakpoint switching are not implemented'});
+      const paragraphs=items(field(field(field(w.body,'RichTextBlock'),'attributed-string'),'Paragraphs'));
+      if(paragraphs.some(p=>items(field(p,'Inlines')).some(run=>field(run,'Link'))))issues.push({widget:widget.id,feature:'inline-link',detail:'Inline hyperlink text and formatting retained; hyperlink-specific interactions are not implemented'});
       if(bool(field(w.body,'Selected')))widget.selected=true;
       const selectedStyle=object(g,field(props.get(P.IX_STYLES),'Selected'));
       const selectionGroup=str(field(w.body,'SelectedStyleGroup'));
@@ -118,23 +127,42 @@ export function convertRp9(data:Buffer):Conversion {
         if(number(props.get(P.ROTATION))||number(props.get(P.OPACITY),1)!==1||bool(field(w.body,'Propagate'))){
           issues.push({widget:widget.id,feature:'group-style',detail:'Group rotation, opacity or propagated interaction styles require native verification; child geometry and styles retained'});
         }
+      }else if(type==='MenuObject'){
+        widget.kind='menu';css.background='transparent';css.border='0';
+        widget.children=diagram(g,w,depth+1,prefix,templateImages);
+        if(items(field(w.body,'submenus')).length)issues.push({widget:widget.id,feature:'menu-submenu',detail:'Top-level menu table retained; submenu opening and positioning are not implemented'});
+      }else if(type==='Table'){
+        widget.children=diagram(g,w,depth+1,prefix,templateImages);
+        widget.css=css.display==='none'?{display:'none'}:{};
+        try{
+          const {table,cellIds}=readTable(g,w),byId=new Map(widget.children.map(c=>[c.source.objectId,c]));
+          if(cellIds.length!==widget.children.length||cellIds.some(id=>!byId.has(id)))throw new Error('Table cells do not match diagram objects');
+          widget.kind='table';widget.table=table;widget.children=cellIds.map(id=>byId.get(id)!);
+          Object.assign(widget,layoutTable(widget));
+        }catch(error){issues.push({widget:widget.id,feature:'table-structure',detail:String(error)});}
+      }else if(type==='TableCell'){
+        widget.kind='shape';tableCellCss(w,css);
+        const text=richText(w,props,undefined,textOverrides);if(text)widget.content.push(text);
       }else if(type==='ImageMapRegion'){
         widget.kind='hotspot';
         css.background='transparent';css.border='0';
       }else if(type==='VectorShape'||type==='Line'||type==='Connector'){
         widget.kind='shape';
-        const svg=parseVector(w,props,width,height,widget.id);
+        const cssRectangle=isCssRectangle(w,props,width,height);
+        const svg=cssRectangle?undefined:parseVector(w,props,width,height,widget.id);
         if(svg){delete css.background;delete css['border-width'];delete css['border-style'];delete css['border-color'];}
-        else issues.push({widget:widget.id,feature:'vector',detail:`No path data for ${type}`});
+        else if(!cssRectangle)issues.push({widget:widget.id,feature:'vector',detail:`No path data for ${type}`});
         if(svg)widget.content.push(svg);
         const text=richText(w,props,undefined,textOverrides);if(text)widget.content.push(text);
       }else if(type==='ImageBox'){
         widget.kind='image';imageBoxCss(css);
         const src=asset(props.get(P.IMAGE));
-        if(src)widget.content.push({kind:'image',asset:src,alt:widget.name});
-        else if(!templateImages?.has(widget.source.guid))issues.push({widget:widget.id,feature:'image',detail:'Image Stream unavailable'});
+        widget.content.push({kind:'image',asset:src??null,alt:widget.name,frame:imageFrame(css,width,height,widget.id)});
+        if(!src&&!templateImages?.has(widget.source.guid))issues.push({widget:widget.id,feature:'image',detail:'Image Stream unavailable'});
         const text=richText(w,props,undefined,textOverrides);if(text)widget.content.push(text);
       }else if(type==='DynamicPanel'){
+        if(bool(field(w.body,'is-fixed'))||bool(field(w.body,'is-percent-width')))issues.push({widget:widget.id,feature:'panel-positioning',detail:'Fixed pinning and percentage width are not implemented; authored geometry retained'});
+        if(bool(field(w.body,'propagate-styles')))issues.push({widget:widget.id,feature:'panel-style-propagation',detail:'Panel interaction style propagation is not implemented'});
         widget.kind='panel';panelCount++;css.background='transparent';css.border='0';css.overflow=number(field(w.body,'scrollbars'))?'auto':'hidden';
         widget.states=[];
         for(const ref of items(field(w.body,'panel-diagrams'))){
@@ -179,15 +207,28 @@ export function convertRp9(data:Buffer):Conversion {
           return {id:String(index),cells};
         })};
         issues.push({widget:widget.id,feature:'repeater-runtime',detail:'Template/data binding, sorting and pagination supported; filtering, data mutation and expressions outside the supported UI AST still require implementation'});
-      }else if(['TextBox','TextArea','RadioButton','Checkbox','CheckBox','DropList','ListBox','Button'].includes(type)){
+      }else if(['TextBox','TextArea','RadioButton','Checkbox','CheckBox','ComboBox','DropList','ListBox','Button'].includes(type)){
         widget.kind='control';
-        const control:FormControl={kind:'control',control:type==='TextArea'?'textarea':type==='RadioButton'?'radio':type==='Checkbox'||type==='CheckBox'?'checkbox':type==='DropList'||type==='ListBox'?'select':type==='Button'?'button':'text',label:widget.name||'Text input',value:str(field(field(w.body,'TextBlock'),'text')),placeholder:str(field(w.body,'PlaceholderText')),disabled:bool(field(w.body,'Disabled')),readOnly:bool(field(w.body,'ReadOnly'))};
+        const control:FormControl={kind:'control',control:type==='TextArea'?'textarea':type==='RadioButton'?'radio':type==='Checkbox'||type==='CheckBox'?'checkbox':type==='ComboBox'||type==='DropList'||type==='ListBox'?'select':type==='Button'?'button':'text',label:widget.name||'Text input',value:str(field(field(w.body,'TextBlock'),'text')),placeholder:str(field(w.body,'PlaceholderText')),disabled:bool(field(w.body,'Disabled')),readOnly:bool(field(w.body,'ReadOnly'))};
         if(control.control==='radio'||control.control==='checkbox'){
           css.border='0';css.background='transparent';
           const group=str(field(w.body,'radio-group'));
           control.group=group?prefix+group:undefined;control.checked=bool(field(w.body,'Selected'));control.richLabel=richText(w,props,undefined,textOverrides);
         }
-        if(control.control==='select')control.options=[{label:control.value,value:control.value}];
+        if(control.control==='select'){
+          const options=items(field(w.body,'list-options')).map(ref=>object(g,ref));
+          control.options=options.map(option=>{const label=str(field(option?.body,'object'));return {label,value:label};});
+          const selected=options.findIndex(option=>bool(field(option?.body,'selected')));
+          control.value=control.options[Math.max(0,selected)]?.value??'';
+          if(type==='ListBox')control.listBox=true;
+          if(bool(field(w.body,'multiple')))issues.push({widget:widget.id,feature:'form-multiselect',detail:'Multiple native selections are not implemented; first selected option retained'});
+        }
+        const maxLength=number(field(w.body,'MaxLength'),2147483647);
+        if(maxLength>=0&&maxLength<2147483647)control.maxLength=maxLength;
+        if(number(field(w.body,'Type')))issues.push({widget:widget.id,feature:'form-input-type',detail:`Native input type ${number(field(w.body,'Type'))} is not mapped; rendered as text`});
+        if(bool(field(w.body,'HideHintOnFocus')))issues.push({widget:widget.id,feature:'form-hint-focus',detail:'Hide hint on focus is not implemented'});
+        const hintStyle=object(g,field(props.get(P.IX_STYLES),'Hint'));
+        if(hintStyle)css['--rp-hint-color']=styleToCss(resolveStyleDelta(g,hintStyle,doc)).color??'rgba(153,153,153,1)';
         widget.content.push(control);
       }else{
         const text=richText(w,props,undefined,textOverrides);if(text)widget.content.push(text);
@@ -203,7 +244,7 @@ export function convertRp9(data:Buffer):Conversion {
           for(const key of Object.keys(appearanceCss))if(key.startsWith('padding')||key==='justify-content'||key==='display')delete appearanceCss[key];
           const content=structuredClone(widget.content);
           if(widget.kind==='shape'){
-            const vector=parseVector(w,merged,width,height,widget.id+'-'+variant);
+            const vector=isCssRectangle(w,props,width,height)?undefined:parseVector(w,merged,width,height,widget.id+'-'+variant);
             const index=content.findIndex(c=>c.kind==='vector');
             if(vector&&index>=0)content[index]=vector;
             if(vector){delete appearanceCss.background;delete appearanceCss['border-width'];delete appearanceCss['border-style'];delete appearanceCss['border-color'];}
@@ -233,7 +274,17 @@ export function convertRp9(data:Buffer):Conversion {
             }
           }
           if(delta.has(P.LOCATION)||delta.has(P.SIZE))issues.push({widget:widget.id,feature:variant+'-appearance-geometry',detail:`${variant} layout overrides are not applied; base widget geometry is retained`});
-          if(widget.kind==='image')imageBoxCss(appearanceCss);
+          if(widget.kind==='image'){
+            imageBoxCss(appearanceCss);
+            for(const c of content)if(c.kind==='image')c.frame=imageFrame(appearanceCss,width,height,widget.id+'-'+variant);
+          }
+          if(type==='TableCell'){
+            tableCellCss(w,appearanceCss);
+            for(const side of ['left','top','right','bottom']){
+              if(delta.has(P.BORDER_WIDTH))appearanceCss[`--rp-cell-${side}-width`]=`${number(merged.get(P.BORDER_WIDTH))}px`;
+              if(delta.has(P.BORDER_FILL))appearanceCss[`--rp-cell-${side}-color`]=fillToCss(merged.get(P.BORDER_FILL));
+            }
+          }
           widget.variants={...widget.variants,[variant]:{css:appearanceCss,...(JSON.stringify(content)===JSON.stringify(widget.content)?{}:{content})}};
         }
       }

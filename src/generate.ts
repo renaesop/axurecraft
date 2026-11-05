@@ -10,7 +10,7 @@ const root=resolve(assetRoot??dirname(resolve(input)));
 const names=new Set<string>();
 function collect(widgets:Widget[]):void {
   for(const w of widgets){
-    for(const c of [w.content,...Object.values(w.variants??{}).map(v=>v.content??[])].flat())if(c.kind==='image')names.add(c.asset);
+    for(const c of [w.content,...Object.values(w.variants??{}).map(v=>v.content??[])].flat())if(c.kind==='image'&&c.asset)names.add(c.asset);
     for(const row of w.repeater?.rows??[]){
       for(const cell of Object.values(row.cells))if(cell.kind==='image'&&cell.asset)names.add(cell.asset);
 

@@ -140,7 +140,7 @@ export function RpWidget({id,type,name,style,disabledStyle,selectedStyle,behavio
   const paint=variant==='disabled'?disabledStyle:variant==='selected'?selectedStyle:undefined;
   const computedStyle=paint?{...paint,position:style.position,left:style.left,top:style.top,width:style.width,height:style.height,display:style.display}:{...style};
   if(override?.visible!==undefined)computedStyle.display=override.visible?(style.display==='none'?undefined:style.display):'none';
-  return <div className="rp-widget" id={id} data-kind={type} data-name={name} aria-disabled={override?.disabled} aria-selected={override?.selected} data-click={events.onClick?'':undefined} style={computedStyle} {...events}>{children}</div>;
+  return <div className="rp-widget" id={id} data-kind={type} data-name={name} role={type==='Table'?'table':type==='TableCell'?'cell':undefined} aria-label={type==='Table'?name||'Table':undefined} aria-disabled={override?.disabled} aria-selected={override?.selected} data-click={events.onClick?'':undefined} style={computedStyle} {...events}>{children}</div>;
 }
 export function RpState({ownerId,id,initial,children,style}:{ownerId:string;id:string;initial:boolean;children?:ReactNode;style?:CSSProperties}) {
   const {overrides}=useRuntime();const selected=overrides[ownerId]?.state;
@@ -189,6 +189,8 @@ export function RpAppearance({ownerId,variants,children}:{ownerId:string;variant
 function renderContent(node:ElementNode|string,ownerId:string,key:number):ReactNode {
   if(typeof node==='string')return node;
   const props:Record<string,unknown>={key};for(const [name,value]of Object.entries(node.attrs))if(value!==undefined)props[reactAttribute(name)]=value;
+  if(node.tag==='option')delete props.selected;
+  if(node.tag==='option'&&node.attrs.value!==undefined){props.value=node.attrs.value;delete props.defaultValue;}
   if(node.css)props.style=reactStyle(node.css);
   const control=['input','textarea','select','button'].includes(node.tag);
   let children=node.children.map((c,i)=>renderContent(c,ownerId,i));

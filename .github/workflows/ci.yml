@@ -63,5 +63,6 @@ jobs:
             output/standalone-validation.json
             output/demo/*.png
             output/variables-check/*.png
+            output/tables-check/*.png
           if-no-files-found: warn
           retention-days: 14

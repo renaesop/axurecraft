@@ -6,6 +6,28 @@ interface Anchor { at: Point; incoming?: Point; outgoing?: Point; continues: boo
 const fmt = (value: number): string => Number.isFinite(value) ? String(Number(value.toFixed(5))) : '0';
 const xy = (point: Point): string => `${fmt(point.x)} ${fmt(point.y)}`;
 
+/** Native plain rectangles use CSS, including its corner antialiasing. Edited paths stay SVG. */
+export function isCssRectangle(widget:Value,props:Map<number,Value>,width:number,height:number):boolean {
+  if(number(field(widget.body,'Shape'),-1)!==0)return false;
+  const paths=items(field(widget.body,'ControlPoints'));
+  if(paths.length!==1)return false;
+  const anchors=items(paths[0]);
+  if(!anchors.every(a=>field(a,'HigherSegmentExists')?.value===true))return false;
+  const r=Math.min(Math.max(0,number(props.get(71))),width/2,height/2);
+  const expected=r?[[0,r],[r,0],[width-r,0],[width,r],[width,height-r],[width-r,height],[r,height],[0,height-r]]:[[0,0],[width,0],[width,height],[0,height]];
+  if(anchors.length!==expected.length)return false;
+  const near=(a:number,b:number)=>Math.abs(a-b)<1e-5;
+  return expected.every(([x,y])=>anchors.some(a=>{
+    const p=point(field(a,'Path'),width,height);
+    if(!p||!near(p.x,x)||!near(p.y,y))return false;
+    const handles=['LowerHandle','HigherHandle'].map(k=>point(field(a,k),width,height)).filter((p):p is Point=>!!p);
+    if(!r)return handles.length===0;
+    return handles.length===1&&handles.every(h=>
+      (near(h.x,x)&&near(Math.abs(h.y-y),r*.56)&&(x===0||x===width))||
+      (near(h.y,y)&&near(Math.abs(h.x-x),r*.56)&&(y===0||y===height)));
+  }));
+}
+
 function point(value: Value | undefined, width = 1, height = 1): Point | undefined {
   // The wire format uses NaN for absent Bezier handles; never turn these into (0,0).
   const x = number(field(value, 'X'), NaN), y = number(field(value, 'Y'), NaN);

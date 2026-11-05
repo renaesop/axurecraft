@@ -30,7 +30,8 @@
     "test:all": "node --experimental-strip-types --test tests/*.test.ts research/container/*.test.ts",
     "test:selection-groups": "tsx scripts/validate-selection-groups.ts",
     "test:selection-groups-native": "tsx scripts/validate-native-selection-groups.ts",
-    "compare:html": "node scripts/compare-html.mjs"
+    "compare:html": "node scripts/compare-html.mjs",
+    "test:variables": "tsx scripts/validate-variable-browser.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

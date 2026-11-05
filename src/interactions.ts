@@ -150,15 +150,18 @@ export function readBehaviors(g: Graph, owner: Value, pageByGuid: Map<string, st
         if (enabled?.tag !== 25) { fail('expected RP9 boolean enable value'); continue; }
         out.push({ kind: 'enable', target: targetId, value: bool(enabled) });
       } else {
-        const mode = number(field(info.body, 'set-state-type'), -1);
-        if (bool(field(info.body, 'repeat')) || bool(field(info.body, 'compress'))) { fail('repeated/compressed state changes are unsupported'); continue; }
-        let value: string | undefined;
-        if (mode === 0) value = g.guids[number(field(info.body, 'diagram-id'), -1) - 1];
-        else if (mode === 1 || mode === 2) value = mode === 1 ? 'next' : 'previous';
-        else if (mode === 4) continue;
-        if (!value || value === zeroGuid) { fail(`unsupported or unresolved panel state mode ${mode}`); continue; }
-        if (bool(field(info.body, 'show-when-set'))) out.push({ kind: 'show', target: targetId });
-        out.push({ kind: 'state', target: targetId, value,loop:bool(field(info.body,'loop')),transition:{show:number(field(info.body,'enter-easing')),hide:number(field(info.body,'exit-easing')),showDuration:number(field(info.body,'enter-duration')),hideDuration:number(field(info.body,'exit-duration'))} });
+        const mode=number(field(info.body,'set-state-type'),-1);
+        let value:string|undefined,expression:Action['expression'];
+        if(mode===0)value=g.guids[number(field(info.body,'diagram-id'),-1)-1];
+        else if(mode===1||mode===2)value=mode===1?'next':'previous';
+        else if(mode===3){try{expression=expressions.compile(prop(g,info,'state-value'),targetId);}catch(error){fail(String(error));continue;}}
+        else if(mode===4)value='current';
+        if(!expression&&(!value||value===zeroGuid)){fail(`Unresolved panel state mode ${mode}`);continue;}
+        out.push({kind:'state',target:targetId,value,expression,loop:bool(field(info.body,'loop')),showWhenSet:bool(field(info.body,'show-when-set')),
+          ...(bool(field(info.body,'repeat'))?{repeat:{interval:number(field(info.body,'repeat-interval')),skipFirst:bool(field(info.body,'repeat-skip-first'))}}:{}),
+          ...(bool(field(info.body,'compress'))?{compression:{vertical:bool(field(info.body,'vertical')),easing:number(field(info.body,'compress-easing')),duration:number(field(info.body,'compress-duration'))}}:{}),
+          transition:{show:number(field(info.body,'enter-easing')),hide:number(field(info.body,'exit-easing')),showDuration:number(field(info.body,'enter-duration')),hideDuration:number(field(info.body,'exit-duration'))}});
+
       }
     }
     return out;

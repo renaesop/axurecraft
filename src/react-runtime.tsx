@@ -7,7 +7,7 @@ import {chooseAdaptiveView,type AdaptiveDefinition,type AdaptivePaint} from './a
 import {compressionActions} from './compression.ts';
 import {pageStyle} from './page-layout.ts';
 import {animateTransition,frontIndex} from './transition.ts';
-import {nextPanelState,schedulePanelEvent} from './panel.ts';
+import {nextPanelState,schedulePanelEvent,createPanelRepeater} from './panel.ts';
 import {currentImage,isImageUrl} from './images.ts';
 import {treePlacements} from './tree.ts';
 import {navigate} from './navigation.ts';
@@ -53,10 +53,16 @@ export function PrototypePage({definition,children}:{definition:PageDefinition;c
     const data=definition.repeaters[w.id];
     return [w,...(data?describeWidgets(materializeRepeater(w.id,data,latest.current[w.id]?.repeater).flatMap(row=>row.widgets)):[])];
   });
+  const readLiveGeometry=(id:string):Geometry|undefined=>{
+    const target=currentWidgets().find(w=>w.id===id),override=latest.current[id],geometry=override?.geometry??readGeometry(id,target?.kind==='group'?target.geometry:undefined),size=override?.autoSize;
+    return geometry&&size?{...geometry,width:size.width??geometry.width,height:size.height}:geometry;
+  };
   const paint=(id:string)=>currentWidgets().find(w=>w.id===id)?.adaptive?.[viewRef.current];
   const switchAdaptive=(value?:string):void=>{const a=definition.adaptive;if(!a)return;forcedView.current=value&&value!=='auto'&&a.views.some(v=>v.id===value)?value:undefined;const next=forcedView.current??chooseAdaptiveView(a,innerWidth,innerHeight);if(next===viewRef.current)return;viewRef.current=next;setActiveView(next);updateOverrides(p=>Object.fromEntries(Object.entries(p).map(([id,o])=>[id,paint(id)?{...o,geometry:undefined,autoSize:undefined}:o])));for(const b of definition.behaviors)if(b.event==='adaptivechange')void run(b.actions);};
   useEffect(()=>{const resize=()=>switchAdaptive(forcedView.current);window.addEventListener('resize',resize);return ()=>window.removeEventListener('resize',resize);},[definition]);
   const controller=useRef<AbortController|null>(null);
+  const panelRepeats=useMemo(()=>createPanelRepeater(),[definition]);
+  useEffect(()=>()=>panelRepeats.clear(),[panelRepeats]);
   const applyActions=async(actions:Action[],signal=controller.current?.signal):Promise<void>=>{
     for(const action of actions){
       if(signal?.aborted)return;
@@ -80,14 +86,14 @@ export function PrototypePage({definition,children}:{definition:PageDefinition;c
       if(action.kind==='back'){window.history.back();continue;}
       if(action.kind==='refresh'){reloadWithVariables(variables,action.includeVariables!==false);continue;}
       if(['move','resize','rotate'].includes(action.kind)&&action.target){
-        const target=currentWidgets().find(w=>w.id===action.target),before=latest.current[action.target]?.geometry??readGeometry(action.target,target?.kind==='group'?target.geometry:undefined);
+        const target=currentWidgets().find(w=>w.id===action.target),before=readLiveGeometry(action.target);
         if(before){const geometry=movedGeometry(before,action,motionOffset(action.target,before));animateGeometry(action.target,before,geometry,action,target?.kind==='group');updateOverrides(previous=>({...previous,[action.target!]:{...previous[action.target!],geometry}}));}
         continue;
       }
       if(['show','hide','toggle'].includes(action.kind)&&action.target){
         const id=action.target,element=document.getElementById(id),target=currentWidgets().find(w=>w.id===id);if(!element||!target)continue;
         const show=action.kind==='show'||action.kind==='toggle'&&!(latest.current[id]?.visible??target.visible),t=action.transition;
-        if(action.compression&&show!==(latest.current[id]?.visible??target.visible))await applyActions(compressionActions(id,currentWidgets(),key=>latest.current[key]?.geometry??readGeometry(key,currentWidgets().find(w=>w.id===key)?.kind==='group'?currentWidgets().find(w=>w.id===key)?.geometry:undefined),action.compression,show),signal);
+        if(action.compression&&show!==(latest.current[id]?.visible??target.visible))await applyActions(compressionActions(id,currentWidgets(),readLiveGeometry,action.compression,show),signal);
         const wasVisible=latest.current[id]?.visible??target.visible;closeFlyout(id);setBackdrops(p=>Object.fromEntries(Object.entries(p).filter(([key])=>key!==id)));
         if(show&&action.popup){const z=frontIndex();updateOverrides(p=>({...p,[id]:{...p[id],zIndex:z+1}}));if(action.popup.mode==='flyout')openFlyout(id,action.popup.source,()=>void run([{kind:'hide',target:id,transition:t}]));else setBackdrops(p=>({...p,[id]:{color:action.popup!.background??'rgba(0,0,0,.5)',zIndex:z,hide:!wasVisible,transition:t}}));}
         if(show)updateOverrides(p=>({...p,[id]:{...p[id],visible:true,zIndex:t?.bringToFront&&!action.popup?frontIndex():p[id]?.zIndex}}));
@@ -101,7 +107,22 @@ export function PrototypePage({definition,children}:{definition:PageDefinition;c
         }
         continue;
       }
-      const previousPanelState=action.target?latest.current[action.target]?.state:undefined;
+      if(action.kind==='state'&&action.target){
+        const id=action.target,target=currentWidgets().find(w=>w.id===id),element=document.getElementById(id);if(!target||!element)continue;
+        if(!panelRepeats.prepare(action,next=>void applyActions([next],signal)))continue;
+        const current=latest.current[id]?.state??target.states[0],next=nextPanelState(target.states,current,action.value,action.loop??true,action.expression?target.stateNames??{}:undefined);
+        if(!next||next===current){panelRepeats.cancel(id);if(next&&action.showWhenSet)await applyActions([{kind:'show',target:id,compression:action.compression}],signal);continue;}
+        const size=target.stateSizes?.[next],wasVisible=latest.current[id]?.visible??target.visible;
+        if(size&&action.compression&&wasVisible)await applyActions(compressionActions(id,currentWidgets(),readLiveGeometry,action.compression,size),signal);
+        updateOverrides(p=>({...p,[id]:{...p[id],state:next,transition:action.transition,...(size?{autoSize:{width:target.percentWidth?undefined:size.width,height:size.height},...(p[id]?.geometry?{geometry:{...p[id].geometry!,...size}}:{})}:{})}}));
+        schedulePanelEvent(id,action.transition,()=>{for(const b of target.behaviors)if(b.event==='statechange')void run(b.actions,signal);});
+        if(action.showWhenSet){
+          // The next state size is authoritative before React commits the new DOM.
+          if(size&&!wasVisible&&action.compression)await applyActions(compressionActions(id,currentWidgets(),key=>key===id?{...(latest.current[id]?.geometry??readGeometry(id)!),...size}:latest.current[key]?.geometry??readGeometry(key),action.compression,true),signal);
+          await applyActions([{kind:'show',target:id}],signal);
+        }
+        continue;
+      }
       updateOverrides(previous=>{
         if((action.kind==='repeater-data'||action.kind==='repeater-sort'||action.kind==='repeater-page')&&action.target){
           const data=definition.repeaters[action.target];if(!data)return previous;
@@ -122,13 +143,10 @@ export function PrototypePage({definition,children}:{definition:PageDefinition;c
         if(action.kind==='show')next.visible=true;
         if(action.kind==='hide')next.visible=false;
         if(action.kind==='toggle')next.visible=!(next.visible??target.visible);
-        if(action.kind==='state'){
-          next.state=nextPanelState(target.states,next.state,action.value,action.loop??true);next.transition=action.transition;
-          const size=next.state&&target.stateSizes?.[next.state];if(size)next.autoSize={width:target.percentWidth?undefined:size.width,height:size.height};
-        }
+
         return {...previous,[target.id]:next};
       });
-      if(action.kind==='state'&&action.target){const target=currentWidgets().find(w=>w.id===action.target),next=latest.current[action.target]?.state;if(next&&next!==(previousPanelState??target?.states[0]))schedulePanelEvent(action.target,action.transition,()=>{for(const b of target?.behaviors??[])if(b.event==='statechange')void run(b.actions,signal);});}
+
     }
   };
   const selection=createSelectionController({

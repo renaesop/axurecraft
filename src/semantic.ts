@@ -57,12 +57,14 @@ export function parseSemanticProject(json:string):Project {
       if(a.windowFeatures!==undefined)string(a.windowFeatures,p+'.windowFeatures');
       if(a.imageState!==undefined&&!['normal','selected','disabled','hover','pressed'].includes(string(a.imageState,p+'.imageState')))fail(p+'.imageState','image state');
       if(a.kind==='set-image'&&a.value!==undefined&&!isImageUrl(string(a.value,p+'.value')))fail(p+'.value','image URL');
+      if(a.repeat!==undefined){const r=object(a.repeat,p+'.repeat');if(number(r.interval,p+'.repeat.interval')<0)fail(p+'.repeat.interval','nonnegative delay');if(r.skipFirst!==undefined)boolean(r.skipFirst,p+'.repeat.skipFirst');}
+      if(a.showWhenSet!==undefined)boolean(a.showWhenSet,p+'.showWhenSet');
       if(a.loop!==undefined)boolean(a.loop,p+'.loop');
       if(a.transition!==undefined){const t=object(a.transition,p+'.transition');for(const key of ['show','hide','showDuration','hideDuration'])if(number(t[key],p+'.transition.'+key)<0)fail(p+'.transition.'+key,'nonnegative number');if(t.bringToFront!==undefined)boolean(t.bringToFront,p+'.transition.bringToFront');}
       if(a.popup!==undefined){const q=object(a.popup,p+'.popup');if(!['flyout','lightbox'].includes(string(q.mode,p+'.popup.mode')))fail(p+'.popup.mode','popup mode');for(const key of ['source','background'])if(q[key]!==undefined)string(q[key],p+'.popup.'+key);}
       if(a.compression!==undefined){const c=object(a.compression,p+'.compression');boolean(c.vertical,p+'.compression.vertical');for(const key of ['easing','duration'])if(number(c[key],p+'.compression.'+key)<0)fail(p+'.compression.'+key,'nonnegative number');}
       if(a.motion!==undefined){const m=object(a.motion,p+'.motion');if(m.bounds!==undefined)for(const [key,e]of Object.entries(object(m.bounds,p+'.motion.bounds'))){if(!['left','right','top','bottom'].includes(key))fail(p+'.motion.bounds','boundary direction');uiExpression(e,p+'.motion.bounds.'+key);}for(const key of motionAxes)if(m[key]!==undefined)uiExpression(m[key],p+'.motion.'+key);for(const key of ['relative','clockwise'])if(m[key]!==undefined)boolean(m[key],p+'.motion.'+key);if(m.anchor!==undefined)string(m.anchor,p+'.motion.anchor');for(const key of ['duration','easing'])if(m[key]!==undefined&&number(m[key],p+'.motion.'+key)<0)fail(p+'.motion.'+key,'nonnegative number');}
-      if((a.kind==='link'||a.kind==='set-image'||a.kind==='repeater-page')&&a.expression!==undefined)uiExpression(a.expression,p+'.expression');
+      if((a.kind==='link'||a.kind==='set-image'||a.kind==='repeater-page'||a.kind==='state')&&a.expression!==undefined)uiExpression(a.expression,p+'.expression');
       if(a.kind==='branch')array(a.branches,p+'.branches').forEach((value,j)=>{const b=object(value,p+'.branch');if(b.condition!==undefined)uiExpression(b.condition,p+'.condition');actions(b.actions,p+'.branches.'+j+'.actions',depth+1);});
       if(a.kind==='repeater-data'){
         string(a.target,p+'.target');const r=object(a.repeaterAction,p+'.repeaterAction');

@@ -20,8 +20,8 @@ export function applySnapshotActions(widgets:Widget[],actions:Action[],variables
   else if(a.kind==='hide')w.css.display='none';
   else if(a.kind==='toggle'){if(w.css.display==='none')delete w.css.display;else w.css.display='none';}
   else if(a.kind==='state'&&w.states?.length){
-   const list=states.get(w.id)!,next=nextPanelState(list.map(s=>s.id),w.states[0].id,value,a.loop??true),active=list.find(s=>s.id===next);if(!active)continue;
-   w.states=[active,...list.filter(s=>s!==active)];if(w.panel?.fitToContent){const bounds=visibleDiagramBounds(active.widgets);w.width=bounds.right;w.height=bounds.bottom;}
+   const list=states.get(w.id)!;if(value==='current'||a.repeat?.skipFirst)continue;const next=nextPanelState(list.map(s=>s.id),w.states[0].id,value,a.loop??true,a.expression?Object.fromEntries(list.map(s=>[s.id,s.name])):undefined),active=list.find(s=>s.id===next);if(!active)continue;
+   if(a.showWhenSet)delete w.css.display;w.states=[active,...list.filter(s=>s!==active)];if(w.panel?.fitToContent){const bounds=visibleDiagramBounds(active.widgets);w.width=bounds.right;w.height=bounds.bottom;}
   }
   else if(a.kind==='fire-event'){for(const b of w.behaviors)if(b.event===value)execute(b.actions,depth+1);}
   else if(a.kind==='enable')w.disabled=!axureBoolean(value);

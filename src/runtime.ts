@@ -7,7 +7,7 @@ import {pageStyle} from './page-layout.ts';
 import {compressionActions} from './compression.ts';
 import {createVariables,reloadWithVariables} from './variables.ts';
 import {animateTransition,frontIndex} from './transition.ts';
-import {nextPanelState,schedulePanelEvent} from './panel.ts';
+import {nextPanelState,schedulePanelEvent,createPanelRepeater} from './panel.ts';
 import {currentImage,isImageUrl} from './images.ts';
 import {treePlacements} from './tree.ts';
 import {navigate} from './navigation.ts';
@@ -43,6 +43,7 @@ function applyImage(id:string):void {
  for(const el of widget.querySelectorAll('img.rp-image,svg.rp-framed-image'))if(el.closest('.rp-widget')===widget){const image=el.localName==='svg'?el.querySelector('image'):el;if(image){const attr=image.localName==='image'?'href':'src';if(asset)image.setAttribute(attr,asset);else image.removeAttribute(attr);}el.toggleAttribute('hidden',!asset);}
 }
 const expanded:Record<string,boolean>={};
+const panelRepeats=createPanelRepeater();
 const geometry:Record<string,Geometry>={};
 function applyAppearance(id:string):void {
   const target=document.getElementById(id);if(!target)return;
@@ -144,14 +145,19 @@ async function applyActions(actions:Action[]):Promise<void>{
       }break;
       case 'enable':if(action.target)applyDisabled(enabledChanges(widgets,action.target,!!action.value));break;
       case 'state':if(target){
-        const states=[...target.querySelectorAll<HTMLElement>(':scope > .rp-state')],current=states.find(s=>!s.hidden);
-        const next=nextPanelState(states.map(s=>s.dataset.state!),current?.dataset.state,action.value,action.loop??true);
-        if(!next||next===current?.dataset.state)break;
+        const definition=widgets.find(w=>w.id===action.target);
+        if(!panelRepeats.prepare(action,next=>void applyActions([next])))break;
+        const states=[...target.querySelectorAll<HTMLElement>(':scope > .rp-state')],current=states.find(s=>s.dataset.state===target.dataset.activeState)??states.find(s=>!s.hidden);
+        const next=nextPanelState(states.map(s=>s.dataset.state!),current?.dataset.state,action.value,action.loop??true,action.expression?definition?.stateNames??{}:undefined);
+        if(!next||next===current?.dataset.state){panelRepeats.cancel(target.id);if(action.showWhenSet&&next)await applyActions([{kind:'show',target:target.id,compression:action.compression}]);break;}
+        const size=definition?.stateSizes?.[next],wasVisible=getComputedStyle(target).display!=='none';
+        if(size&&action.compression&&wasVisible)await applyActions(compressionActions(target.id,widgets,id=>geometry[id]??readGeometry(id,widgets.find(w=>w.id===id)?.kind==='group'?widgets.find(w=>w.id===id)?.geometry:undefined),action.compression,size));
         target.dataset.activeState=next;
-        const definition=widgets.find(w=>w.id===action.target),size=definition?.stateSizes?.[next];
-        if(size){target.style.height=size.height+'px';if(!definition.percentWidth)target.style.width=size.width+'px';}
-        schedulePanelEvent(action.target!,action.transition,()=>{for(const b of definition?.behaviors??[])if(b.event==='statechange')void run(b.actions);});
-        for(const state of states){const show=state.dataset.state===next;if(show===!state.hidden)continue;if(show)state.hidden=false;const t=action.transition;animateTransition(state,show,show?t?.show??0:t?.hide??0,show?t?.showDuration??0:t?.hideDuration??0,()=>{state.hidden=!show;});}
+        if(size){target.style.height=size.height+'px';if(!definition?.percentWidth)target.style.width=size.width+'px';if(geometry[target.id])geometry[target.id]={...geometry[target.id],...size};}
+        schedulePanelEvent(target.id,action.transition,()=>{for(const b of definition?.behaviors??[])if(b.event==='statechange')void run(b.actions);});
+        for(const state of states){const show=state.dataset.state===next;if(!show&&state.hidden)continue;if(show)state.hidden=false;const t=action.transition;animateTransition(state,show,show?t?.show??0:t?.hide??0,show?t?.showDuration??0:t?.hideDuration??0,()=>{state.hidden=!show;});}
+        if(action.showWhenSet)await applyActions([{kind:'show',target:target.id,compression:action.compression}]);
+
       }break;
     }
   }

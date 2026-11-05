@@ -36,6 +36,8 @@ export interface Action {
     navigation?: 'current' | 'new' | 'popup' | 'parent' | 'frame' | 'parent-frame';
     windowFeatures?: string;
     loop?: boolean;
+    repeat?:{interval:number;skipFirst?:boolean};
+    showWhenSet?:boolean;
     transition?: {show:number;hide:number;showDuration:number;hideDuration:number;bringToFront?:boolean};
     popup?:{mode:'flyout'|'lightbox';source?:string;background?:string};
     compression?: {vertical:boolean;easing:number;duration:number};

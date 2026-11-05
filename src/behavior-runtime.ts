@@ -64,9 +64,9 @@ export async function executeActions(actions: Action[], host: BehaviorHost, dept
       for(const [key,e]of Object.entries(motion.bounds??{})){const value=evaluateExpression(e,host);if(value===undefined||!Number.isFinite(Number(value))){valid=false;break;}motion.bounds![key as 'left']={kind:'literal',value:Number(value)};}
       for(const key of motionAxes)if(motion[key]){const value=evaluateExpression(motion[key]!,host);if(value===undefined||!Number.isFinite(Number(value))){valid=false;break;}motion[key]={kind:'literal',value:Number(value)};}
       if(valid){await host.apply({...action,motion});if(action.target&&action.kind==='move')await fire(action.target,'move');if(action.target&&action.kind==='rotate'){const id=action.target;if(motion.easing&&motion.duration)setTimeout(()=>void fire(id,'rotate'),motion.duration);else await fire(id,'rotate');}}
-    } else if((action.kind==='link'||action.kind==='set-image'||action.kind==='repeater-page')&&action.expression){
+    } else if((action.kind==='link'||action.kind==='set-image'||action.kind==='repeater-page'||action.kind==='state')&&action.expression){
       const value=evaluateExpression(action.expression,host);
-      if(value!==undefined)await host.apply({...action,value:String(value)});
+      if(value!==undefined)await host.apply({...action,value:action.kind==='state'?value:String(value)});
     } else await host.apply(action);
   }
 }

@@ -1,0 +1,13 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {readBehaviors} from '../src/interactions.ts';import {nextPanelState} from '../src/panel.ts';import type {Graph,Value} from '../src/graph.ts';import type {ConversionIssue} from '../src/model.ts';
+const v=(x:unknown):Value=>Array.isArray(x)?{tag:2,items:x.map(v)}:x&&typeof x==='object'?{tag:1,entries:Object.entries(x).map(([k,x])=>[{tag:8,text:k},v(x)])}:typeof x==='string'?{tag:8,text:x}:typeof x==='boolean'?{tag:25,value:x}:{tag:3,value:x as number};
+const object=(id:number,className:string,body:unknown):Value=>({id,className,tag:9,body:v(body)});
+test('native panel actions preserve repeat, cancellation, compression and state expressions',()=>{
+ for(const mode of [1,3,4]){
+  const owner=object(1,'Axure:DiagramObject:DynamicPanel',{InteractionMap:2}),map=object(2,'map',{tree:3});map.body!.entries!.push([{tag:8,text:'node-table'},{tag:1,entries:[[v(4),v(5)],[v(6),v(7)],[v(8),v(9)]]}]);
+  const objects=[owner,map,object(3,'tree',{children:[4]}),object(4,'node',{children:[6]}),object(5,'event',{'event-type':16}),object(6,'node',{children:[8]}),object(7,'case',{}),object(8,'node',{}),object(9,'Axure:InteractionSetPanelStateAction',{PanelPaths:[10],SetStateInfos:[11]}),object(10,'path',{'object-id':1}),object(11,'info',{'set-state-type':mode,'state-value':12,repeat:mode===1,'repeat-interval':250,'repeat-skip-first':true,loop:true,compress:true,vertical:true,'compress-easing':2,'compress-duration':120,'show-when-set':true}),object(12,'Axure:Expr:StringLiteral',{value:'Tall'})];
+  const g={objects:new Map(objects.map(o=>[o.id!,o])),guids:['panel']} as unknown as Graph,issues:ConversionIssue[]=[],actions=readBehaviors(g,owner,new Map(),issues)[0].actions;assert.deepEqual(issues,[]);assert.equal(actions.length,1);const a=actions[0];assert.equal(a.kind,'state');assert.equal(a.showWhenSet,true);assert.deepEqual(a.compression,{vertical:true,easing:2,duration:120});if(mode===1)assert.deepEqual(a.repeat,{interval:250,skipFirst:true});if(mode===3)assert.deepEqual(a.expression,{kind:'literal',value:'Tall'});if(mode===4)assert.equal(a.value,'current');
+ }
+});
+test('state expression uses names before one-based indices and rejects invalid indices',()=>{
+ const states=['a','b','c'],names={a:'one',b:'3',c:'three'};assert.equal(nextPanelState(states,'a','3',true,names),'b');assert.equal(nextPanelState(states,'a','2',true,names),'b');for(const invalid of ['0','4','1.5','missing'])assert.equal(nextPanelState(states,'a',invalid,true,names),undefined);assert.equal(nextPanelState(states,'a',0),undefined);
+});

@@ -46,10 +46,11 @@ export function parseSemanticProject(json:string):Project {
     if(depth>64)fail(path,'action nesting <= 64');
     array(v,path).forEach((value,i)=>{
       const p=path+'.'+i,a=object(value,p);
-      if(!['link','back','refresh','show','hide','toggle','state','enable','wait','move','resize','rotate','set-image','tree-toggle','adaptive-view','repeater-data','repeater-sort','repeater-page','focus','fire-event','branch','set-text','set-selected','set-variable'].includes(string(a.kind,p+'.kind')))fail(p+'.kind','supported action kind');
+      if(!['link','back','refresh','show','hide','toggle','state','enable','wait','move','resize','rotate','set-image','tree-toggle','adaptive-view','repeater-data','repeater-sort','repeater-page','focus','fire-event','branch','set-text','set-rich-text','set-selected','set-variable'].includes(string(a.kind,p+'.kind')))fail(p+'.kind','supported action kind');
       if(a.target!==undefined)string(a.target,p+'.target');
       if(a.value!==undefined&&!['string','number','boolean'].includes(typeof a.value))fail(p+'.value','scalar action value');
       if(typeof a.value==='number')number(a.value,p+'.value');
+      if(a.kind==='set-rich-text'){string(a.target,p+'.target');text(a.richText,p+'.richText',true,depth+1);}
       if(a.kind==='set-text'||a.kind==='set-selected'){string(a.target,p+'.target');uiExpression(a.expression,p+'.expression');}
       if(a.kind==='set-variable'){if(!string(a.variable,p+'.variable'))fail(p+'.variable','nonempty variable name');uiExpression(a.expression,p+'.expression');}
       if(a.includeVariables!==undefined)boolean(a.includeVariables,p+'.includeVariables');
@@ -79,10 +80,10 @@ export function parseSemanticProject(json:string):Project {
       if(a.kind==='repeater-sort'){const sort=object(a.sort,p+'.sort');number(sort.columnId,p+'.columnId');boolean(sort.ascending,p+'.ascending');string(sort.label,p+'.label');if(!['number','text','text-case'].includes(string(sort.type,p+'.type')))fail(p+'.type','number or text');if(sort.toggle!==undefined)boolean(sort.toggle,p+'.toggle');}
     });
   };
-  const behaviors=(v:unknown,path:string):void=>{array(v,path).forEach((value,i)=>{
-    const b=object(value,path+'.'+i);string(b.event,path+'.event');actions(b.actions,path+'.'+i+'.actions');
+  const behaviors=(v:unknown,path:string,depth=0):void=>{array(v,path).forEach((value,i)=>{
+    const b=object(value,path+'.'+i);string(b.event,path+'.event');actions(b.actions,path+'.'+i+'.actions',depth+1);
   });};
-  const text=(v:unknown,path:string):void=>{const t=object(v,path);if(t.kind!=='text')fail(path+'.kind','text');css(t.css,path+'.css');array(t.paragraphs,path+'.paragraphs').forEach(value=>{const p=object(value,path+'.paragraph');css(p.css,path+'.css');array(p.runs,path+'.runs').forEach(value=>{const r=object(value,path+'.run');string(r.text,path+'.text');css(r.css,path+'.css');if(r.link!==undefined)behaviors(object(r.link,path+'.link').behaviors,path+'.link.behaviors');});});};
+  const text=(v:unknown,path:string,template=false,depth=0):void=>{if(depth>64)fail(path,'rich text nesting <= 64');const t=object(v,path);if(t.kind!=='text')fail(path+'.kind','text');css(t.css,path+'.css');array(t.paragraphs,path+'.paragraphs').forEach(value=>{const p=object(value,path+'.paragraph');css(p.css,path+'.css');array(p.runs,path+'.runs').forEach(value=>{const r=object(value,path+'.run');string(r.text,path+'.text');css(r.css,path+'.css');if(r.expression!==undefined){if(!template)fail(path+'.expression','expressions only in rich text assignments');uiExpression(r.expression,path+'.expression');}if(r.link!==undefined)behaviors(object(r.link,path+'.link').behaviors,path+'.link.behaviors',depth+1);});});};
   const point=(v:unknown,path:string):void=>{const p=object(v,path);number(p.x,path+'.x');number(p.y,path+'.y');};
   const content=(v:unknown,path:string):void=>{
     const c=object(v,path);

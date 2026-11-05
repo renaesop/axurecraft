@@ -15,6 +15,7 @@ import {movedGeometry,motionOffset,geometryCss,animateGeometry,readGeometry,type
 import {createVariables,reloadWithVariables} from './variables.ts';
 import {createSelectionController} from './selection.ts';
 import {executeActions} from './behavior-runtime.ts';
+import {plainRichText} from './rich-text.ts';
 import {readWidgetValue} from './widget-dom.ts';
 import {materializeRepeater,readRepeaterProperty,flattenWidgets,updateRepeaterState,type MaterializedRow} from './repeater-model.ts';
 import {contentElements,widgetStyle,type ElementNode} from './render-tree.ts';
@@ -29,7 +30,7 @@ export interface PageDefinition {
   repeaters:Record<string,RepeaterData>;
   widgets:WidgetStateDefinition[];
 }
-interface Override {images?:Partial<Record<import('./model.ts').ImageState,string>>;hovered?:boolean;pressed?:boolean;autoSize?:{width?:number;height:number};expanded?:boolean;repeater?:RepeaterState;visible?:boolean;state?:string;disabled?:boolean;text?:string;selected?:boolean;selectedPaint?:boolean;geometry?:Geometry;zIndex?:number;transition?:Action['transition']}
+interface Override {richText?:import('./model.ts').RichText;images?:Partial<Record<import('./model.ts').ImageState,string>>;hovered?:boolean;pressed?:boolean;autoSize?:{width?:number;height:number};expanded?:boolean;repeater?:RepeaterState;visible?:boolean;state?:string;disabled?:boolean;text?:string;selected?:boolean;selectedPaint?:boolean;geometry?:Geometry;zIndex?:number;transition?:Action['transition']}
 interface Runtime {paint:(id:string)=>AdaptivePaint|undefined;image:(id:string,fallback?:string|null)=>string|null|undefined;pointer:(id:string,key:'hovered'|'pressed',value:boolean)=>void;overrides:Record<string,Override>;run:(actions:Action[],values?:EventValues)=>Promise<void>;input:(id:string,property:'text'|'selected',value:string|boolean)=>void}
 const Context=createContext<Runtime|null>(null);
 const disabledOverrides=(widgets:WidgetStateDefinition[]):Record<string,Override>=>Object.fromEntries(Object.entries(initialDisabled(widgets)).map(([id,disabled])=>[id,{disabled,selected:widgets.find(w=>w.id===id)?.selected}]));
@@ -39,7 +40,9 @@ function useRuntime():Runtime {const value=useContext(Context);if(!value)throw n
 export function PrototypePage({definition,children}:{definition:PageDefinition;children:ReactNode}) {
   const variables=useMemo(()=>createVariables(definition.variables,typeof window==='undefined'?'':window.location.hash,definition.name),[definition]);
   const [backdrops,setBackdrops]=useState<Record<string,{color:string;zIndex:number;hide:boolean;transition?:Action['transition']}>>({});
-  const [overrides,setOverrides]=useState<Record<string,Override>>(()=>disabledOverrides(definition.widgets));
+  // Repeater rows are derived from their template/data, never serialized a second
+  // time into Page.tsx. Include their initial disabled/selection states on mount.
+  const [overrides,setOverrides]=useState<Record<string,Override>>(()=>disabledOverrides(definition.widgets.flatMap(w=>w.rowInstance?[]:[w,...(definition.repeaters[w.id]?describeWidgets(materializeRepeater(w.id,definition.repeaters[w.id]).flatMap(row=>row.widgets)):[])])));
   const [activeView,setActiveView]=useState(()=>definition.adaptive?chooseAdaptiveView(definition.adaptive,typeof window==='undefined'?0:innerWidth,typeof window==='undefined'?0:innerHeight):'');
   const forcedView=useRef<string|undefined>(undefined),viewRef=useRef(activeView);viewRef.current=activeView;
   const latest=useRef(overrides);
@@ -176,7 +179,7 @@ export function PrototypePage({definition,children}:{definition:PageDefinition;c
       if(['text','selected','visible','disabled'].includes(property))return o?.[property as 'text'|'selected'|'visible'|'disabled']??readWidgetValue(id,property);
       return o?.geometry?.[property as keyof Geometry]??readWidgetValue(id,property);
     },
-    writeText:(id,text)=>updateOverrides(previous=>({...previous,[id]:{...previous[id],text}})),
+    writeText:(id,text,rich)=>updateOverrides(previous=>({...previous,[id]:{...previous[id],text,richText:rich??(previous[id]?.richText?plainRichText(previous[id].richText!,text):undefined)}})),
     writeSelected:(id,selected)=>updateOverrides(previous=>({...previous,[id]:{...previous[id],selected,selectedPaint:previous[id]?.disabled?(previous[id]?.selectedPaint??previous[id]?.selected??false):selected}})),
     behaviors:id=>id==='$page'?definition.behaviors:currentWidgets().find(w=>w.id===id)?.behaviors??[],
     isDisabled:id=>!!latest.current[id]?.disabled,
@@ -266,12 +269,15 @@ export function RpLink({ownerId,behaviors,children,...props}:HTMLAttributes<HTML
  return <span {...props} {...events} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();events.onClick?.(event);}else events.onKeyDown?.(event);}}>{children}</span>;
 }
 export function RpText({ownerId,children,...props}:HTMLAttributes<HTMLDivElement>&{ownerId:string}) {
-  const {overrides}=useRuntime(),value=overrides[ownerId]?.text;
+  const {overrides}=useRuntime(),value=overrides[ownerId]?.text,rich=overrides[ownerId]?.richText;
   let content=children;
-  if(value!==undefined){
+  if(rich){
+    content=contentElements(rich)[0].children.map((node,i)=>renderContent(node,ownerId,i));
+    props.style={...props.style,...reactStyle(rich.css)};
+  }else if(value!==undefined){
     const paragraph=Children.toArray(children).find(isValidElement) as ReactElement<{children?:ReactNode}>|undefined;
     const span=paragraph?Children.toArray(paragraph.props.children).find(isValidElement) as ReactElement<{children?:ReactNode}>|undefined:undefined;
-    const run=span&&span.type!=='br'?cloneElement(span,{},value):<span>{value}</span>;
+    const run=<span style={(span?.props as {style?:CSSProperties})?.style}>{value}</span>;
     content=paragraph?cloneElement(paragraph,{},run):<p>{run}</p>;
   }
   return <div {...props}>{content}</div>;

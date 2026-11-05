@@ -14,6 +14,7 @@ import {navigate} from './navigation.ts';
 import {movedGeometry,motionOffset,geometryCss,animateGeometry,readGeometry,type Geometry} from './motion.ts';
 import {createSelectionController} from './selection.ts';
 import {executeActions} from './behavior-runtime.ts';
+import {plainRichText} from './rich-text.ts';
 import {readWidgetValue,writeWidgetText,writeWidgetSelected} from './widget-dom.ts';
 import type {Behavior,Action,ImageState,RepeaterData,RepeaterState,Widget} from './model.ts';
 import {materializeRepeater,readRepeaterProperty,flattenWidgets,updateRepeaterState} from './repeater-model.ts';
@@ -33,6 +34,7 @@ let widgets:WidgetStateDefinition[]=JSON.parse(document.getElementById('rp-widge
 const disabled:Record<string,boolean>={};
 const selected:Record<string,boolean>={};
 const assignedText:Record<string,string>={};
+const assignedRichText:Record<string,import('./model.ts').RichText>={};
 const imageOverrides:Record<string,Partial<Record<ImageState,string>>>={};
 const pointerState:Record<string,{hovered?:boolean;pressed?:boolean}>={};
 function applyImage(id:string):void {
@@ -57,7 +59,15 @@ function applyAppearance(id:string):void {
       if(current.css[key]===undefined)target.style.removeProperty(key);else target.style.setProperty(key,current.css[key]);
     }
     const content=target.querySelector(':scope > .rp-content');
-    if(content){patchContent(content,current.content.flatMap(contentElements));if(assignedText[id]!==undefined)writeWidgetText(id,assignedText[id]);}
+    if(content){
+      const rich=assignedRichText[id];
+      // Patch the final appearance once. Restoring rich text after patching authored
+      // content would detach link nodes between mousedown and click.
+      const assigned=(node:import('./render-tree.ts').ElementNode|string):typeof node=>typeof node==='string'?node:
+        node.attrs.class==='rp-text'&&rich?{...node,css:{...node.css,...rich.css},children:contentElements(rich)[0].children}:{...node,children:node.children.map(assigned)};
+      patchContent(content,current.content.flatMap(contentElements).map(assigned));
+      if(assignedText[id]!==undefined&&!rich)writeWidgetText(id,assignedText[id]);
+    }
   }
   applyImage(id);
   for(const input of target.querySelectorAll<HTMLInputElement>('input,textarea,select,button')){
@@ -105,7 +115,7 @@ function refreshRepeater(id:string):void {
   target.replaceChildren(...rows.map(w=>createNode(widgetElement(w))));
   const rowDefinitions=describeWidgets(rows);
   widgets=widgets.flatMap(w=>w.id.startsWith(id+'-row')?[]:[w,...(w.id===id?rowDefinitions:[])]);
-  for(const key of Object.keys(disabled))if(key.startsWith(id+'-row')){delete disabled[key];delete assignedText[key];delete selected[key];delete imageOverrides[key];delete pointerState[key];}
+  for(const key of Object.keys(disabled))if(key.startsWith(id+'-row')){delete disabled[key];delete assignedText[key];delete assignedRichText[key];delete selected[key];delete imageOverrides[key];delete pointerState[key];}
   for(const key of Object.keys(geometry))if(key.startsWith(id+'-row'))delete geometry[key];
   initializeWidgets(rowDefinitions);applyAdaptive();
   for(const w of flattenWidgets(rows))bind(w.id,w.behaviors,true);
@@ -166,7 +176,7 @@ function resolvedTargets(id:string):string[]{return id==='$page'||document.getEl
 function run(actions:Action[],depth=0,values:EventValues={}):Promise<void>{
   return executeActions(actions,{
     resolveTargets:resolvedTargets,readEvent:key=>values[key],readVariable:variables.read,writeVariable:variables.write,
-    readWidget:(id,property)=>repeaters[id]?readRepeaterProperty(repeaters[id],repeaterStates[id],property)??readWidgetValue(id,property):readWidgetValue(resolvedTargets(id)[0]??id,property),writeText:(id,text)=>{assignedText[id]=text;writeWidgetText(id,text);},writeSelected:writeWidgetSelected,select:selection.select,
+    readWidget:(id,property)=>repeaters[id]?readRepeaterProperty(repeaters[id],repeaterStates[id],property)??readWidgetValue(id,property):readWidgetValue(resolvedTargets(id)[0]??id,property),writeText:(id,text,rich)=>{assignedText[id]=text;if(rich)assignedRichText[id]=rich;else if(assignedRichText[id])assignedRichText[id]=plainRichText(assignedRichText[id],text);writeWidgetText(id,text,assignedRichText[id]);},writeSelected:writeWidgetSelected,select:selection.select,
     selectionEventState:id=>!!selected[id],
     canSelect:id=>canSelectWidget(widgets.find(w=>w.id===id),!!disabled[id]),
     behaviors:id=>id==='$page'?behaviors.$page??[]:widgets.find(w=>w.id===id)?.behaviors??[],isDisabled:id=>!!disabled[id],

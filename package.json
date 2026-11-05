@@ -33,7 +33,7 @@
     "compare:html": "node scripts/compare-html.mjs",
     "test:variables": "tsx scripts/validate-variable-browser.ts",
     "test:ci": "npm run typecheck && npm test",
-    "test:ci:browser": "npm run test:demo && npm run test:variables && npm run test:selection-groups && npm run test:tables && npm run test:navigation && npm run test:motion && npm run test:repeater-data && npm run test:tree && npm run test:inline-links && npm run test:images && npm run test:compression && npm run test:adaptive && npm run test:input-events && npm run test:popups && npm run test:masters && npm run test:snapshots && npm run test:menus && npm run test:pointer-styles && npm run test:panel-sequences",
+    "test:ci:browser": "npm run test:demo && npm run test:variables && npm run test:selection-groups && npm run test:tables && npm run test:navigation && npm run test:motion && npm run test:repeater-data && npm run test:tree && npm run test:inline-links && npm run test:images && npm run test:compression && npm run test:adaptive && npm run test:input-events && npm run test:popups && npm run test:masters && npm run test:snapshots && npm run test:menus && npm run test:pointer-styles && npm run test:panel-sequences && npm run test:rich-text",
     "test:standalone": "node scripts/validate-standalone.mjs",
     "test:tables": "tsx scripts/validate-tables.ts",
     "audit:controls": "tsx scripts/audit-controls.ts",
@@ -51,7 +51,9 @@
     "test:snapshots": "tsx scripts/validate-snapshots.ts",
     "test:menus": "tsx scripts/validate-menus.ts",
     "test:pointer-styles": "tsx scripts/validate-pointer-styles.ts",
-    "test:panel-sequences": "tsx scripts/validate-panel-sequences.ts"
+    "test:panel-sequences": "tsx scripts/validate-panel-sequences.ts",
+    "test:rich-text": "tsx scripts/validate-rich-text.ts",
+    "audit:structure": "tsx scripts/audit-structure.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

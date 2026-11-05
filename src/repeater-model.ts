@@ -1,3 +1,4 @@
+import {mapRichText} from './rich-text.ts';
 import {filteredRows,mutateRepeater} from './repeater-actions.ts';
 import {bindExpression} from './expression.ts';
 import {layoutTree} from './tree.ts';
@@ -86,6 +87,7 @@ export function materializeRepeater(id:string,data:RepeaterData,state=initialRep
         if(a.kind==='state'&&typeof a.value==='string')a.value=mapped(a.value);
         const column=(id:number)=>{const cell=row.cells[String(id)];return cell?.kind==='text'?cell.value:cell?.kind==='image'?cell.asset??'':undefined;};
         if(a.expression)a.expression=bindExpression(a.expression,mapped,column,index+1);
+        if(a.richText)a.richText=mapRichText(a.richText,e=>bindExpression(e,mapped,column,index+1),bindActions);
         if(a.repeaterAction){
           const r=a.repeaterAction;if(r.selection==='this')r.rowId=row.id;
           if(r.condition)r.condition=bindExpression(r.condition,mapped,()=>undefined);

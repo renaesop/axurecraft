@@ -1,5 +1,5 @@
 import {reactStyle,reactAttribute as attributeName} from './react-props.ts';
-import {materializePage,materializeTables} from './repeater-model.ts';
+import {materializeTables} from './repeater-model.ts';
 import {describeWidgets} from './widget-state.ts';
 export {reactStyle} from './react-props.ts';
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
@@ -71,7 +71,7 @@ ${indent}</RpWidget>`;
 }
 function flatten(widgets:Widget[]):Widget[]{return widgets.flatMap(w=>[w,...flatten(w.children??[]),...(w.states??[]).flatMap(s=>flatten(s.widgets))]);}
 export function pageDefinition(page:Page,variables:GlobalVariable[]=[]):PageDefinition {
-  return {id:page.id,adaptive:page.adaptive,name:page.name,alignment:page.alignment,contentLeft:page.contentLeft,variables,width:page.width,height:page.height,background:page.background,behaviors:page.behaviors,repeaters:Object.fromEntries(flatten(page.widgets).filter(w=>w.repeater).map(w=>[w.id,w.repeater!])),widgets:describeWidgets(materializePage(page).widgets).map(({appearance,...state})=>state)};
+  return {id:page.id,adaptive:page.adaptive,name:page.name,alignment:page.alignment,contentLeft:page.contentLeft,variables,width:page.width,height:page.height,background:page.background,behaviors:page.behaviors,repeaters:Object.fromEntries(flatten(page.widgets).filter(w=>w.repeater).map(w=>[w.id,w.repeater!])),widgets:describeWidgets(materializeTables(page.widgets)).map(({appearance,...state})=>state)};
 }
 /** Emits concrete, editable JSX elements; no innerHTML, iframe or serialized HTML string. */
 export function pageToJsx(page:Page,componentName='Prototype',variables:GlobalVariable[]=[]):string {
@@ -89,7 +89,7 @@ export async function writeReactProject(project:Project,assets:Map<string,Buffer
   }
   const src=fileURLToPath(new URL('.',import.meta.url));
   copyFileSync(join(src,'react-runtime.tsx'),join(source,'runtime.tsx'));copyFileSync(join(src,'model.ts'),join(source,'model.ts'));
-  for(const file of ['pointer.ts','menu.ts','popups.ts','input-events.ts','adaptive.ts','compression.ts','images.ts','groups.ts','expression-methods.ts','tree.ts','repeater-actions.ts','panel.ts','transition.ts','motion.ts','navigation.ts','controls.ts','table.ts','repeater-model.ts','react-props.ts','render-tree.ts','widget-state.ts','expression.ts','behavior-runtime.ts','widget-dom.ts','selection.ts','variables.ts','page-layout.ts'])copyFileSync(join(src,file),join(source,file));
+  for(const file of ['rich-text.ts','pointer.ts','menu.ts','popups.ts','input-events.ts','adaptive.ts','compression.ts','images.ts','groups.ts','expression-methods.ts','tree.ts','repeater-actions.ts','panel.ts','transition.ts','motion.ts','navigation.ts','controls.ts','table.ts','repeater-model.ts','react-props.ts','render-tree.ts','widget-state.ts','expression.ts','behavior-runtime.ts','widget-dom.ts','dom-content.ts','selection.ts','variables.ts','page-layout.ts'])copyFileSync(join(src,file),join(source,file));
   const entry=project.pages.map((_,i)=>`import Page${i+1} from './Page${i+1}.jsx';`).join('\n')+`\nimport {createRoot} from 'react-dom/client';\nconst pages={${project.pages.map((p,i)=>`${json(p.file)}:Page${i+1}`).join(',')}};\nconst Page=pages[decodeURIComponent(location.pathname.split('/').pop())]??Page1;\ncreateRoot(document.getElementById('root')).render(<Page/>);\n`;
   writeFileSync(join(source,'main.jsx'),entry);
   const req=createRequire(import.meta.url);

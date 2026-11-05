@@ -16,7 +16,10 @@ export function readBehaviors(g: Graph, owner: Value, pageByGuid: Map<string, st
   const report = (feature: string, detail: string): void => {
     issues.push({ widget: owner.id === undefined ? undefined : `w-${g.guids[owner.id - 1]}`, feature, detail });
   };
-  const expressions = nativeExpressions(g, owner, variables,undefined,context);
+  const expressions = nativeExpressions(g, owner, variables,undefined,context,ref=>{
+    const link=object(g,ref);if(!link)throw new Error('Unresolved rich text hyperlink');
+    return {behaviors:readBehaviors(g,link,pageByGuid,issues,false,variables,asset,context)};
+  });
   const nodeTable = field(map.body, 'node-table');
   const target = (node: Value): Value | undefined => object(g, nodeTable?.entries?.find(([key]) => number(key, -1) === node.id)?.[1]);
   const children = (node: Value | undefined): Value[] => items(field(node?.body, 'children')).map(v => object(g, v)).filter((v): v is Value => !!v);

@@ -1,5 +1,7 @@
 import {readGeometry} from './motion.ts';
-import type { Scalar,WidgetProperty } from './model.ts';
+import type { Scalar,WidgetProperty,RichText } from './model.ts';
+import {contentElements} from './render-tree.ts';
+import {patchContent} from './dom-content.ts';
 
 export function ownedElement<T extends Element>(widget: Element, selector: string): T | undefined {
   return [...widget.querySelectorAll<T>(selector)].find(el => el.closest('.rp-widget') === widget);
@@ -19,14 +21,21 @@ export function readWidgetValue(id: string, property: WidgetProperty): Scalar | 
   return text ? [...text.children].map(p => p.textContent ?? '').join('\n') : '';
 }
 
-export function writeWidgetText(id: string, value: string): void {
+export function writeWidgetText(id: string, value: string, richText?:RichText): void {
   const widget = document.getElementById(id); if (!widget) return;
   const input = ownedElement<HTMLInputElement>(widget, 'input,textarea,select');
   if (input && !['checkbox', 'radio'].includes(input.type)) { input.value = value; return; }
   const text = ownedElement<HTMLElement>(widget, '.rp-text');
   if (!text) return;
+  if(richText){
+    patchContent(text,contentElements(richText)[0].children);
+    for(const [key,value]of Object.entries(richText.css))text.style.setProperty(key,value);
+    return;
+  }
   const paragraph = text.firstElementChild?.cloneNode(false) as HTMLElement | undefined ?? document.createElement('p');
-  const run = text.firstElementChild?.firstElementChild?.cloneNode(false) as HTMLElement | undefined ?? document.createElement('span');
+  const run=document.createElement('span');
+  run.style.cssText=(text.querySelector('span') as HTMLElement|null)?.style.cssText??'';
+  run.style.removeProperty('pointer-events');run.style.removeProperty('cursor');
   run.textContent = value; paragraph.append(run); text.replaceChildren(paragraph);
 }
 export function writeWidgetSelected(id: string, value: boolean): void {

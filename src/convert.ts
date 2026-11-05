@@ -1,3 +1,4 @@
+import {nativeParagraphCss} from './native-rich-text.ts';
 import {snapshotSurface,applySnapshotActions} from './snapshot.ts';
 import {nativeBackground} from './native-background.ts';
 import {instantiateMaster} from './master.ts';
@@ -84,9 +85,7 @@ export function convertRp9(data:Buffer):Conversion {
     for(const key of Object.keys(css))if(key.startsWith('border')||['background','opacity','transform','box-shadow','display','box-sizing'].includes(key))delete css[key];
     const resolvedTextCss=css;
     if(paragraphs.length)return {kind:'text',css,paragraphs:(override===undefined?paragraphs:paragraphs.slice(0,1)).map(p=>{
-      const align=['left','center','right','justify'][number(field(p,'HorizontalAlignment'))]??'left';
-      const lineSpacing=number(field(p,'LineSpacing'));
-      const css:Record<string,string>={'text-align':overrideCss['text-align']??align};if(lineSpacing>0)css['line-height']=`${lineSpacing*4/3}px`;
+      const css=nativeParagraphCss(p);if(overrideCss['text-align'])css['text-align']=overrideCss['text-align'];
       const inlines=inlineRuns(items(field(p,'Inlines')));
       const runs=override===undefined?inlines.map(({run,link})=>({text:str(field(run,'Text')),css:textRunToCss(run),...(link&&g?{link:{behaviors:readBehaviors(g,link,pageByGuid,issues,false,variables,asset,contexts.get(g))}}:{})})):[{text:override,css:inlines[0]?textRunToCss(inlines[0].run):{}}];
       for(const run of runs)for(const key of runKeys){if(uniform.has(key)&&resolvedTextCss[key]!==undefined)delete run.css[key];else if(overrideCss[key]!==undefined)run.css[key]=overrideCss[key];}

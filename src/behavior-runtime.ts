@@ -1,4 +1,5 @@
-import type { Action, Behavior, Scalar } from './model.ts';
+import type { Action, Behavior, Scalar, RichText } from './model.ts';
+import {evaluateRichText,mapRichText,richTextValue} from './rich-text.ts';
 import { axureBoolean, evaluateExpression, snapshotExpression, bindExpression, type ExpressionContext } from './expression.ts';
 import {motionAxes} from './motion.ts';
 
@@ -9,11 +10,26 @@ export interface BehaviorHost extends ExpressionContext {
   canSelect?(id: string): boolean;
   selectionEventState?(id: string): boolean;
   select?(id: string, value: boolean, depth: number): void;
-  writeText(id: string, value: string): void;
+  writeText(id: string, value: string, richText?:RichText): void;
   writeSelected(id: string, value: boolean): void;
   writeVariable?(name: string, value: Scalar): void;
   apply(action: Action): void | Promise<void>;
   cancelled?(): boolean;
+}
+
+function broadcastAction(action:Action,target:string):Action {
+  const source=action.target,map=(id:string)=>id===source?target:id;
+  const expression=(value:import('./model.ts').UIExpression)=>bindExpression(value,map,()=>undefined);
+  const actions=(list:Action[]):void=>{for(const a of list){
+    if(a.target)a.target=map(a.target);
+    if(a.popup?.source)a.popup.source=map(a.popup.source);
+    if(a.expression)a.expression=expression(a.expression);
+    if(a.richText)a.richText=mapRichText(a.richText,expression,actions);
+    if(a.motion){for(const key of motionAxes)if(a.motion[key])a.motion[key]=expression(a.motion[key]!);for(const [key,e]of Object.entries(a.motion.bounds??{}))a.motion.bounds![key as 'left']=expression(e);}
+    for(const b of a.branches??[]){if(b.condition)b.condition=expression(b.condition);actions(b.actions);}
+    if(a.repeaterAction){const r=a.repeaterAction;if(r.condition)r.condition=expression(r.condition);for(const cells of [r.values,...r.rows??[]])for(const cell of Object.values(cells??{}))if(cell.kind==='expression')cell.expression=expression(cell.expression);}
+  }};
+  const result=structuredClone(action);actions([result]);return result;
 }
 
 /** Shared sequencing for conditional actions and synthetic change events. */
@@ -25,21 +41,29 @@ export async function executeActions(actions: Action[], host: BehaviorHost, dept
   };
   for (const action of actions) {
     if (host.cancelled?.()) return;
-    if(action.target&&host.resolveTargets){const targets=host.resolveTargets(action.target);if(targets.length!==1||targets[0]!==action.target){for(const target of targets){const mapped={...action,target};if(mapped.expression)mapped.expression=bindExpression(mapped.expression,id=>id===action.target?target:id,()=>undefined);await executeActions([mapped],host,depth+1);}continue;}}
+    if(action.target&&host.resolveTargets){
+      const targets=host.resolveTargets(action.target);
+      if(targets.length!==1||targets[0]!==action.target){for(const target of targets)await executeActions([broadcastAction(action,target)],host,depth+1);continue;}
+    }
     if (action.kind === 'branch') {
       const branch = action.branches?.find(b => !b.condition || axureBoolean(evaluateExpression(b.condition, host)));
       if (branch) await executeActions(branch.actions, host, depth + 1);
     } else if (action.kind === 'set-variable' && action.variable && action.expression) {
       const value = evaluateExpression(action.expression, host);
       if (value !== undefined) host.writeVariable?.(action.variable, value);
+    } else if(action.kind==='set-rich-text'&&action.target&&action.richText){
+      const text=evaluateRichText(action.richText,host);if(!text)continue;
+      const value=richTextValue(text),changed=host.readWidget(action.target,'text')!==value;
+      host.writeText(action.target,value,text);
+      if(changed)await fire(action.target,'textchange');
     } else if ((action.kind === 'set-text' || action.kind === 'set-selected') && action.target && action.expression) {
       const value = evaluateExpression(action.expression, host);
       if (value === undefined) continue;
       if (action.kind === 'set-text') {
         const text = String(value);
-        if (host.readWidget(action.target, 'text') === text) continue;
+        const changed=host.readWidget(action.target,'text')!==text;
         host.writeText(action.target, text);
-        await fire(action.target, 'textchange');
+        if(changed)await fire(action.target, 'textchange');
       } else {
         if(host.canSelect&&!host.canSelect(action.target))continue;
         const previous = !!host.readWidget(action.target, 'selected');

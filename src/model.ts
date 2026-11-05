@@ -24,12 +24,13 @@ export interface ConditionalBranch {
 }
 export type ImageState='normal'|'selected'|'disabled'|'hover'|'pressed';
 export interface Action {
-    kind: 'link' | 'back' | 'refresh' | 'show' | 'hide' | 'toggle' | 'state' | 'enable' | 'wait' | 'move' | 'resize' | 'rotate' | 'set-image' | 'tree-toggle' | 'adaptive-view' | 'repeater-data' | 'repeater-sort' | 'repeater-page' | 'focus' | 'fire-event' | 'set-text' | 'set-selected' | 'set-variable' | 'branch';
+    kind: 'link' | 'back' | 'refresh' | 'show' | 'hide' | 'toggle' | 'state' | 'enable' | 'wait' | 'move' | 'resize' | 'rotate' | 'set-image' | 'tree-toggle' | 'adaptive-view' | 'repeater-data' | 'repeater-sort' | 'repeater-page' | 'focus' | 'fire-event' | 'set-text' | 'set-rich-text' | 'set-selected' | 'set-variable' | 'branch';
     target?: string;
     value?: string | number | boolean;
     sort?: RepeaterSort;
     repeaterAction?: RepeaterAction;
     expression?: UIExpression;
+    richText?: RichTextTemplate;
     variable?: string;
     includeVariables?: boolean;
     imageState?:ImageState;
@@ -68,6 +69,12 @@ export interface RichText {
         runs: TextRun[];
     }[];
 }
+/** Rich assignments retain authored runs; only interpolation fragments are evaluated. */
+export type RichTextTemplate = Omit<RichText, 'paragraphs'> & {
+    paragraphs: (Omit<RichText['paragraphs'][number], 'runs'> & {
+        runs: (TextRun & {expression?: UIExpression})[];
+    })[];
+};
 export interface VectorPath {
     data: string;
     fill: string;

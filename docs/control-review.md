@@ -90,6 +90,16 @@
 
 Line / Button / DropList 等兼容分支与上述对象的专属行为仍需补充对应输入。三方元件保存成这些原生类型时走同一链路；库名称本身不能证明受支持。
 
+## 富文本与结构检查
+
+- 原生 `RichTextLiteral` 的 `attributed-string-value` 转为可编辑的段落/片段结构；`SetWidgetRichText(..., false)` 已实现，支持混合字体、字号、颜色、粗斜体、装饰、段落对齐/行距和局部/全局/中继器变量。
+- 公式跨多个片段时，替换结果继承起始片段的格式；空段落、换行和 HTML 特殊字符保留。相同文字也能改变格式；再次普通赋值保留首片段样式。
+- 中继器 ItemLoad 不再将富文本交给静态普通文本绑定器；母版、行实例、批量赋值中的表达式及链接引用独立映射。快照预览支持富文本赋值。
+- 修复 HTML 外观切换先恢复旧内容再覆盖富文本、导致链接节点在按下到点击之间被移除的问题。
+- 原创富文本浏览器用例覆盖 HTML / React，680×460 整页 RGBA 差异为 0；68 项公开测试 + 41 项本地语料测试通过。
+- 另取得两个真实 RP9 文件：[button styling](https://forum.axure.com/t/button-design-icon-and-text-on-button/68105)、[Color Test](https://forum.axure.com/t/unable-to-change-text-color-when-button-clicked/63362)。均零转换诊断，动态赋值与样式在两个渲染器中通过。Color Test 整页差异 0；button styling 的一次捕获有 556 个差异像素，全部落在两处动画 GIF 加载图标，富文本区域无差异。这是两个转换渲染器的比较，尚无这两个文件配对的原生导出 HTML。
+- 新增六组[结构用例](structure-review.md)，消除 React 导出中重复的中继器行状态。1000 行用例的 TSX 从 782,498 字节降到 178,001 字节；模板主体不随行数增长。初始选中和禁用状态由运行时构造，并有浏览器回归。
+
 ## 可复现检查
 
 ```bash

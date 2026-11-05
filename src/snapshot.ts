@@ -1,3 +1,4 @@
+import {evaluateRichText,plainRichText,richTextValue} from './rich-text.ts';
 import {nextPanelState} from './panel.ts';
 import {visibleDiagramBounds} from './groups.ts';
 import type {Action,Widget,Scalar,UIExpression} from './model.ts';
@@ -26,7 +27,11 @@ export function applySnapshotActions(widgets:Widget[],actions:Action[],variables
   else if(a.kind==='fire-event'){for(const b of w.behaviors)if(b.event===value)execute(b.actions,depth+1);}
   else if(a.kind==='enable')w.disabled=!axureBoolean(value);
   else if(a.kind==='set-selected')w.selected=!!axureBoolean(value);
-  else if(a.kind==='set-text')for(const c of w.content){if(c.kind==='control')c.value=String(value??'');if(c.kind==='text'){const p=c.paragraphs[0]??{css:{},runs:[]};c.paragraphs=[{css:p.css,runs:[{text:String(value??''),css:p.runs[0]?.css??{}}]}];}}
+  else if(a.kind==='set-text'||a.kind==='set-rich-text'){
+   const rich=a.richText&&evaluateRichText(a.richText,{readWidget:read,readVariable:name=>String(variables.get(name.toLowerCase())??'')});
+   if(a.kind==='set-rich-text'&&!rich)continue;
+   for(const c of w.content){if(c.kind==='text')Object.assign(c,rich?{...rich,css:{...c.css,...rich.css}}:plainRichText(c,String(value??'')));if(c.kind==='control'){c.value=rich?richTextValue(rich):String(value??'');if(c.richLabel)c.richLabel=rich?{...rich,css:{...c.richLabel.css,...rich.css}}:plainRichText(c.richLabel,c.value);}}
+  }
   else if(a.kind==='set-image'){for(const c of w.content)if(c.kind==='image')c.asset=value?String(value):null;}
   else if(['move','resize','rotate'].includes(a.kind)){
    const motion=structuredClone(a.motion??{});for(const key of motionAxes)if(motion[key]){const value=evaluate(motion[key]!);if(value!==undefined)motion[key]={kind:'literal',value};}

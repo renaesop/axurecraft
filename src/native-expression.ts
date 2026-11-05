@@ -3,12 +3,14 @@ import {datasetColumns,type NativeContext} from './native-reference.ts';
 import { field, items, number, object, prop, str, type Graph, type Value } from './graph.ts';
 import type { Action, BinaryOperator, UIExpression, GlobalVariable, WidgetProperty } from './model.ts';
 import { parseFormula } from './expression-parser.ts';
+import {nativeAttributedText,richTextTemplate} from './native-rich-text.ts';
+import {richTextValue} from './rich-text.ts';
 const zeroGuid = '00000000000000000000000000000000';
 // Axure.Platform.LogicalComparison, verified from the official RP9 API enum.
 const comparisons: Record<number, BinaryOperator> = { 1: '&&', 2: '||', 3: '==', 4: '!=', 5: '>', 6: '<', 7: '>=', 8: '<=' };
 
 /** Compile native expression records into the public UI expression tree. */
-export function nativeExpressions(g: Graph, owner: Value, variables: GlobalVariable[] = [], targetDataset?:Value, context:NativeContext={}) {
+export function nativeExpressions(g: Graph, owner: Value, variables: GlobalVariable[] = [], targetDataset?:Value, context:NativeContext={}, richLink?:(ref:Value)=>import('./model.ts').TextRun['link']) {
   const variableById = (id: number): GlobalVariable | undefined => variables.find(v => v.sourceGuid && v.sourceGuid === g.guids[id - 1]);
   const variableByName = (name: string): GlobalVariable | undefined => variables.find(v => v.name.toLowerCase() === name.toLowerCase());
   const variableArgument = (node: Value | undefined): string => {
@@ -38,6 +40,7 @@ export function nativeExpressions(g: Graph, owner: Value, variables: GlobalVaria
   };
   const compile = (node: Value | undefined, actionTarget?: string, depth = 0): UIExpression => {
     if (!node || depth > 64) throw new Error('Missing expression or nesting exceeds 64');
+    if(node.className==='Axure:Expr:RichTextLiteral')return compile(stringLiteral(node,richTextValue(nativeAttributedText(field(node.body,'attributed-string-value')))),actionTarget,depth+1);
     if(node.className==='Axure:Expr:DynamicPanelDiagramLiteral'){const id=g.guids[number(field(node.body,'panel-diagram-id-objectid'))-1],name=context.stateNames?.get(id);if(name===undefined)throw new Error('Unresolved panel state '+id);return {kind:'literal',value:name};}
     if(node.className==='Axure:Expr:KeyPressLiteral')return {kind:'literal',value:nativeKeyValue(number(field(node.body,'keys')),number(field(node.body,'character')))};
     if (node.className === 'Axure:Expr:BooleanLiteral') {
@@ -109,6 +112,8 @@ export function nativeExpressions(g: Graph, owner: Value, variables: GlobalVaria
     // A native StringLiteral returns text even when the whole string is one calculation.
     return parts.length === 1 && parts[0].kind === 'literal' ? parts[0] : { kind: 'concat', parts };
   };
+  // Retain the RichTextLiteral's local/global/repeater scope for each interpolation.
+  const stringLiteral=(node:Value,text:string):Value=>({...node,className:'Axure:Expr:StringLiteral',body:{tag:1,entries:[...(node.body?.entries??[]).filter(([k])=>k.text!=='value'),[{tag:8,text:'value'},{tag:8,text}]]}});
   const actions = (node: Value | undefined, depth = 0): Action[] => {
     if (!node || depth > 64) throw new Error('Missing action expression or nesting exceeds 64');
     if (node.className === 'Axure:Expr:Block') return items(field(node.body, 'subexpressions')).flatMap(ref => actions(object(g, ref), depth + 1));
@@ -122,7 +127,15 @@ export function nativeExpressions(g: Graph, owner: Value, variables: GlobalVaria
     if (!['SetWidgetRichText', 'SetWidgetText', 'SetWidgetFormText', 'SetCheckState'].includes(name)) throw new Error(`Unsupported action function ${name}`);
     if (name === 'SetWidgetRichText') {
       const plain = compile(object(g, args[2]));
-      if (plain.kind !== 'literal' || plain.value !== true) throw new Error('Formatted HTML text assignment is unsupported');
+      if(plain.kind!=='literal'||typeof plain.value!=='boolean')throw new Error('Rich text plain flag must be a boolean');
+      if(!plain.value){
+        const value=object(g,args[1]),id=pathArgument(object(g,args[0]));
+        if(value?.className!=='Axure:Expr:RichTextLiteral')throw new Error('Formatted assignment requires a native RichTextLiteral');
+        const text=nativeAttributedText(field(value.body,'attributed-string-value'),ref=>{
+          if(!richLink)throw new Error('Rich text hyperlink has no behavior resolver');return richLink(ref);
+        });
+        return [{kind:'set-rich-text',target:id,richText:richTextTemplate(text,text=>compile(stringLiteral(value,text),id))}];
+      }
     }
     const id = pathArgument(object(g, args[0]));
     return [{ kind: name === 'SetCheckState' ? 'set-selected' : 'set-text', target: id, expression: compile(object(g, args[1]), id) }];

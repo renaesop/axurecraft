@@ -52,6 +52,8 @@ export function repeaterRows(g: Graph, widget: Value, variables: GlobalVariable[
     if (['SetGlobalVariableValue','SetCheckState','SetWidgetFormText'].includes(name)) return; // Compiled by the runtime action path.
     if (!['SetWidgetRichText', 'SetWidgetText', 'SetWidgetImage'].includes(name)) { problems.add(`Unsupported repeater load function ${name}`); return; }
     const args = items(field(expression.body, 'args'));
+    // Formatted ItemLoad assignments must execute with their native run styles and scopes.
+    if(name==='SetWidgetRichText'&&str(field(object(g,args[2])?.body,'value')).toLowerCase()!=='true')return;
     const valueExpression=object(g,args[1]);
     const rawText=str(field(valueExpression?.body,'value'));
     const dynamic=!!field(valueExpression?.body,'scope')?.entries?.length || /\[\[|\]\]/.test(rawText.replace(/\[\[\s*(?:Item|TargetItem)\.[^\[\]\s.()+*/]+\s*\]\]/gi,''));

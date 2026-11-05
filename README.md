@@ -6,6 +6,7 @@
 
 RP9 → Semantic UI → HTML · React JSX · TSX
 
+[![CI](https://github.com/renaesop/axurecraft/actions/workflows/ci.yml/badge.svg)](https://github.com/renaesop/axurecraft/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/TypeScript-implementation-3178C6?style=flat-square)
 ![React](https://img.shields.io/badge/React-editable_JSX-149ECA?style=flat-square)
 ![Status](https://img.shields.io/badge/status-experimental-F59E0B?style=flat-square)
@@ -155,7 +156,7 @@ npm run demo
 | Webstack 原生 HTML 截图对照 | 393 个展开控件；首屏差异 10,897 / 1,440,000 像素，长页 25,992 / 5,760,000 像素 |
 | 两种浏览器输出与独立构建 | 资源加载、交互、编辑值保持、生成工程构建 |
 
-这些数据来自本地研究验证，不是在线 CI 状态。原生函数对照使用官方脚本及限定适配器，不能证明整个 Axure 运行时等价。HTML 与 React 的截图对比仍有少量像素差异，也不能代替原生截图对照。
+上表为本地研究验证数据。[GitHub Actions CI](https://github.com/renaesop/axurecraft/actions/workflows/ci.yml) 会在 push / PR 时运行 Node.js 22.18 与 24 的类型检查和 20 项核心测试，以及 Chromium 中的 HTML/React 浏览器回归、导出 React 工程的独立安装/构建/类型检查。浏览器报告与截图保留 14 天；41 项本地语料测试仍需要未分发的研究样本。原生函数对照使用官方脚本及限定适配器，不能证明整个 Axure 运行时等价。HTML 与 React 的截图对比仍有少量像素差异，也不能代替原生截图对照。
 
 **当前验收缺口：** 已取得小型 RP9 配对样例的原生 HTML 基准，三种宽度、两种状态的整页截图仅有 2–4 个角点差异像素；Webstack 复杂长页也完成配对：1440×1000 首屏差异 0.76%，1920×3000 长页差异 0.45%。截图只验证这些初始状态，复杂交互仍需逐项补齐。39 个初始导航热点中心中有 4 个被上层元素遮挡，需与原生行为核对。完整 UI 等价目标尚未完成。
 
@@ -181,6 +182,10 @@ node scripts/compare-html.mjs comparison.json output/comparison
 ```
 
 输出 `index.html` 并排展示两张整页截图，附精确像素差异图及 `report.json`。支持本地文件和 HTTP 地址；两侧使用同一浏览器与窗口，不裁切、不设差异容差。
+
+[Native HTML comparison](https://github.com/renaesop/axurecraft/actions/workflows/native-comparison.yml) 可在 Actions 页面手动运行。它下载固定提交的 Webstack 样例并校验 SHA-256，重新转换 RP，再对比两份 HTML；截图、差异图和转换诊断作为 artifact 保存。该工作流报告像素差异，不把非零差异判定为测试失败；页面脚本错误或图片加载失败会令任务失败。
+
+本地可运行 `npm run test:ci`、`npm run test:ci:browser` 和 `npm run test:standalone`。浏览器脚本支持 `CHROME_PATH`；CI 安装 lockfile 对应的 Playwright Chromium，不依赖本机 Chrome 路径。`test:standalone` 需要先生成 `output/demo/react`（例如运行 `npm run demo`）。
 
 配对样例、截图指标和复现步骤见 [原生 HTML 对照](docs/native-comparison.md)。
 

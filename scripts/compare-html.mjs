@@ -1,6 +1,6 @@
 import {chromium} from 'playwright-core';
 import {PNG} from 'pngjs';
-import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
+import {readFileSync,writeFileSync,mkdirSync,appendFileSync} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
@@ -27,9 +27,10 @@ try{
     if(config.readySelector)await page.locator(config.readySelector[kind]).waitFor();
     await page.evaluate(async()=>{await document.fonts.ready;await Promise.all([...document.images].map(i=>i.decode().catch(()=>{})));});
     if(config.settleMs)await page.waitForTimeout(config.settleMs);
+    const failedImages=await page.evaluate(()=>[...document.images].filter(image=>!image.complete||image.naturalWidth===0).map(image=>image.getAttribute('src')));
     const filename=`${name}-${kind}.png`;
     const bytes=await page.screenshot({path:join(output,filename),animations:'disabled'});
-    captures.push({kind,url:target,filename,errors,png:PNG.sync.read(bytes)});
+    captures.push({kind,url:target,filename,errors,failedImages,png:PNG.sync.read(bytes)});
     await context.close();
    }
    const [a,b]=captures.map(c=>c.png);
@@ -54,4 +55,13 @@ try{
  writeFileSync(join(output,'report.json'),JSON.stringify(report,null,2)+'\n');
  writeFileSync(join(output,'index.html'),`<!doctype html><meta charset="utf-8"><title>AxureCraft · HTML comparison</title><style>body{font:16px system-ui;margin:40px;background:#f4f6f9;color:#17243b}article{background:white;padding:24px;margin:24px 0;border-radius:12px}img{max-width:100%;border:1px solid #d9deea}a{color:#315bea}summary{cursor:pointer}</style><h1>Axure HTML ↔ AxureCraft HTML</h1><p>Left: Axure original. Right: converted HTML. Red pixels in the difference image indicate any RGBA difference.</p>${comparisons.map(c=>`<article><h2>${escape(c.state)} · ${c.viewport.width} × ${c.viewport.height}</h2><p>${c.differentPixels.toLocaleString()} / ${c.totalPixels.toLocaleString()} pixels differ · browser errors: ${c.captures.reduce((n,x)=>n+x.errors.length,0)}</p><a href="${c.name}-pair.png"><img src="${c.name}-pair.png"></a><details><summary>Difference image</summary><img src="${c.name}-diff.png"></details></article>`).join('')}`);
  console.log(JSON.stringify(comparisons.map(({captures,...c})=>c),null,2));
+ if(process.env.GITHUB_STEP_SUMMARY){
+  const lines=['## Native HTML screenshot comparison','','Browser: '+report.browser+' · '+report.platform,
+   '', '| Viewport | State | Different pixels | Ratio |', '| --- | --- | ---: | ---: |',
+   ...comparisons.map(c=>`| ${c.viewport.width} × ${c.viewport.height} | ${c.state} | ${c.differentPixels} / ${c.totalPixels} | ${(100*c.differentPixels/c.totalPixels).toFixed(4)}% |`),
+   '', 'Pixel differences are reported, not gated. Success means capture completed without page errors or broken images; it does not establish UI equivalence.',
+   'Download the native-html-comparison artifact to view index.html and the paired/difference images.', ''];
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY,lines.join('\n'));
+ }
+ if(comparisons.some(c=>c.captures.some(capture=>capture.errors.length||capture.failedImages.length)))throw new Error('Page errors or broken images detected; see report.json');
 }finally{await browser.close();}

@@ -1,0 +1,62 @@
+name: Native HTML comparison
+
+# Diagnostic screenshot comparison: not a claim of complete Axure parity.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-comparison-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  webstack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Fetch matching RP9 and native HTML from a fixed upstream commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: RicardoWesleyli/webstack
+          ref: 11331466fcde1543f11d9adba3427054174e3b3b
+          path: research/webstack
+          persist-credentials: false
+      - name: Verify RP input checksum
+        run: |
+          node --input-type=module -e 'import {readFileSync} from "node:fs"; import {createHash} from "node:crypto"; import assert from "node:assert/strict"; assert.equal(createHash("sha256").update(readFileSync("research/webstack/webstack.rp")).digest("hex"), "c2f3d9a4bf448c91aac0e77d21a9f545a962a5632177a5be5c1f215c8373bf16");'
+      - name: Install locked Playwright Chromium and system dependencies
+        run: |
+          npx --no-install playwright-core install --with-deps chromium
+          node --input-type=module -e 'import {appendFileSync} from "node:fs"; import {chromium} from "playwright-core"; appendFileSync(process.env.GITHUB_ENV, `CHROME_PATH=${chromium.executablePath()}\n`);'
+      - run: npm run convert -- research/webstack/webstack.rp output/webstack
+      - name: Compare native and converted HTML screenshots
+        run: |
+          python3 -m http.server 8769 --bind 127.0.0.1 --directory research/webstack > "$RUNNER_TEMP/native-server.log" 2>&1 &
+          native_server_pid=$!
+          trap 'kill "$native_server_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8769/index.html -o /dev/null; then break; fi
+            sleep 1
+          done
+          npm run compare:html -- examples/webstack-comparison.json output/native-comparison
+      - name: Upload paired screenshots, differences and diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-html-comparison
+          path: |
+            output/native-comparison/
+            output/webstack/conversion-report.json
+            ${{ runner.temp }}/native-server.log
+          if-no-files-found: warn
+          retention-days: 14

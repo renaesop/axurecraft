@@ -48,3 +48,9 @@ npm run compare:html -- examples/webstack-comparison.json output/webstack-compar
 记录结果使用 macOS、Chrome 156.0.8078.81、deviceScaleFactor=1、sRGB；两端使用相同浏览器设置，加载完成后等待字体和图片。不同操作系统、浏览器或字体可能改变像素计数。
 
 这些比较覆盖初始页面及注明的 URL 状态，不验证滚动后的固定面板、所有菜单操作、所有条件分支或任意第三方元件。字体、图片和原型版权归原作者。原生 Axure 运行时与第三方 RP 不包含在本仓库中。
+
+## GitHub Actions
+
+[手动运行 Native HTML comparison](https://github.com/renaesop/axurecraft/actions/workflows/native-comparison.yml)，然后在运行页面下载 `native-html-comparison` artifact。它包含并排截图、差异图、原始截图、机器可读报告及转换诊断；任务摘要展示差异比例。
+
+该任务在 Ubuntu 24.04 上使用 Playwright 安装的 Chromium，因此指标可能与上面的 macOS 历史记录不同。像素差异属于诊断结果，未设置通过阈值；页面异常或图片加载失败会令工作流失败。常规 CI 则使用原创语义夹具，自动验证 HTML / React 行为和独立构建。

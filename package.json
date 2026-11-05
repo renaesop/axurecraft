@@ -31,7 +31,10 @@
     "test:selection-groups": "tsx scripts/validate-selection-groups.ts",
     "test:selection-groups-native": "tsx scripts/validate-native-selection-groups.ts",
     "compare:html": "node scripts/compare-html.mjs",
-    "test:variables": "tsx scripts/validate-variable-browser.ts"
+    "test:variables": "tsx scripts/validate-variable-browser.ts",
+    "test:ci": "npm run typecheck && npm test",
+    "test:ci:browser": "npm run test:demo && npm run test:variables && npm run test:selection-groups",
+    "test:standalone": "node scripts/validate-standalone.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

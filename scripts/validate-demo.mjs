@@ -31,7 +31,7 @@ try {
     await page.evaluate(() => document.fonts.ready);
     if (renderer === 'react') {
       mkdirSync('docs', { recursive: true });
-      await page.locator('.rp-page').screenshot({ path: 'docs/demo.png' });
+      await page.locator('.rp-page').screenshot({ path: process.env.UPDATE_DEMO_SCREENSHOT === '1' ? 'docs/demo.png' : 'output/demo/react.png' });
     }
     results.push({ renderer, actualPointerToggle: true, appearanceAndTextRestored: true });
   }

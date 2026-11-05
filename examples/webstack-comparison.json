@@ -1,0 +1,20 @@
+{
+  "reference": "http://127.0.0.1:8769/index.html",
+  "candidate": "output/webstack/page-1.html",
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 1000
+    },
+    {
+      "width": 1920,
+      "height": 3000
+    }
+  ],
+  "states": [
+    {
+      "name": "Webstack initial",
+      "hash": ""
+    }
+  ]
+}

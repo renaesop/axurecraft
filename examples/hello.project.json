@@ -1,0 +1,254 @@
+{
+  "schema": "axure-semantic",
+  "schemaVersion": 2,
+  "sourceSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "pages": [
+    {
+      "id": "demo",
+      "name": "AxureCraft",
+      "file": "page-1.html",
+      "width": 640,
+      "height": 400,
+      "background": "#f8fafc",
+      "widgets": [
+        {
+          "id": "demo-title",
+          "kind": "shape",
+          "type": "VectorShape",
+          "name": "Title",
+          "x": 48,
+          "y": 48,
+          "width": 540,
+          "height": 56,
+          "css": {
+            "font-family": "system-ui, sans-serif",
+            "color": "#17203d",
+            "font-size": "28px",
+            "font-weight": "700"
+          },
+          "content": [
+            {
+              "kind": "text",
+              "css": {},
+              "paragraphs": [
+                {
+                  "css": {},
+                  "runs": [
+                    {
+                      "text": "From prototype to editable code.",
+                      "css": {}
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "behaviors": [],
+          "source": {
+            "record": 0,
+            "objectId": 0,
+            "guid": "demo-title",
+            "className": "AuthoredExample"
+          }
+        },
+        {
+          "id": "demo-caption",
+          "kind": "shape",
+          "type": "VectorShape",
+          "name": "Description",
+          "x": 48,
+          "y": 116,
+          "width": 540,
+          "height": 72,
+          "css": {
+            "font-family": "system-ui, sans-serif",
+            "color": "#64748b",
+            "font-size": "17px",
+            "line-height": "1.65"
+          },
+          "content": [
+            {
+              "kind": "text",
+              "css": {},
+              "paragraphs": [
+                {
+                  "css": {},
+                  "runs": [
+                    {
+                      "text": "Edit this semantic JSON. Regenerate HTML and JSX.\nThe same UI model drives both renderers.",
+                      "css": {}
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "behaviors": [],
+          "source": {
+            "record": 0,
+            "objectId": 0,
+            "guid": "demo-caption",
+            "className": "AuthoredExample"
+          }
+        },
+        {
+          "id": "demo-button",
+          "kind": "shape",
+          "type": "VectorShape",
+          "name": "Toggle selection",
+          "x": 48,
+          "y": 226,
+          "width": 220,
+          "height": 52,
+          "css": {
+            "font-family": "system-ui, sans-serif",
+            "color": "#17203d",
+            "font-size": "16px",
+            "font-weight": "600",
+            "background": "#e0e7ff",
+            "border-radius": "12px",
+            "padding": "14px 20px",
+            "cursor": "pointer"
+          },
+          "content": [
+            {
+              "kind": "text",
+              "css": {
+                "display": "flex",
+                "align-items": "center",
+                "justify-content": "center",
+                "height": "100%",
+                "width": "100%",
+                "text-align": "center"
+              },
+              "paragraphs": [
+                {
+                  "css": {},
+                  "runs": [
+                    {
+                      "text": "Select this card",
+                      "css": {}
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "behaviors": [
+            {
+              "event": "click",
+              "actions": [
+                {
+                  "kind": "set-selected",
+                  "target": "demo-button",
+                  "expression": {
+                    "kind": "unary",
+                    "operator": "!",
+                    "operand": {
+                      "kind": "widget",
+                      "target": "demo-button",
+                      "property": "selected"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "event": "select",
+              "actions": [
+                {
+                  "kind": "set-text",
+                  "target": "demo-status",
+                  "expression": {
+                    "kind": "literal",
+                    "value": "Selected — click again to reset."
+                  }
+                }
+              ]
+            },
+            {
+              "event": "unselect",
+              "actions": [
+                {
+                  "kind": "set-text",
+                  "target": "demo-status",
+                  "expression": {
+                    "kind": "literal",
+                    "value": "Ready — select the card to try an interaction."
+                  }
+                }
+              ]
+            }
+          ],
+          "source": {
+            "record": 0,
+            "objectId": 0,
+            "guid": "demo-button",
+            "className": "AuthoredExample"
+          },
+          "variants": {
+            "selected": {
+              "css": {
+                "font-family": "system-ui, sans-serif",
+                "color": "#ffffff",
+                "font-size": "16px",
+                "font-weight": "600",
+                "background": "#4338ca",
+                "border-radius": "12px",
+                "padding": "14px 20px",
+                "cursor": "pointer"
+              }
+            }
+          }
+        },
+        {
+          "id": "demo-status",
+          "kind": "shape",
+          "type": "VectorShape",
+          "name": "Status",
+          "x": 48,
+          "y": 304,
+          "width": 540,
+          "height": 44,
+          "css": {
+            "font-family": "system-ui, sans-serif",
+            "color": "#64748b",
+            "font-size": "14px"
+          },
+          "content": [
+            {
+              "kind": "text",
+              "css": {},
+              "paragraphs": [
+                {
+                  "css": {},
+                  "runs": [
+                    {
+                      "text": "Ready — select the card to try an interaction.",
+                      "css": {}
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "behaviors": [],
+          "source": {
+            "record": 0,
+            "objectId": 0,
+            "guid": "demo-status",
+            "className": "AuthoredExample"
+          }
+        }
+      ],
+      "behaviors": []
+    }
+  ],
+  "issues": [],
+  "stats": {
+    "pages": 1,
+    "widgets": 4,
+    "assets": 0,
+    "issues": 0
+  }
+}

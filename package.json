@@ -1,0 +1,73 @@
+{
+  "name": "axurecraft",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "convert": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:browser": "node scripts/validate-browser.mjs",
+    "generate": "tsx src/generate.ts",
+    "test:react": "node scripts/validate-browser.mjs output/campus/react",
+    "compare:renderers": "node scripts/compare-renderers.mjs",
+    "test:semantic-edit": "tsx scripts/validate-semantic-edit.ts",
+    "test:pointer": "node scripts/validate-pointer.mjs",
+    "test:repeater": "node scripts/validate-repeater-browser.mjs",
+    "test:repeater-edit": "tsx scripts/validate-repeater-edit.ts",
+    "test:repeater-native": "tsx scripts/validate-native-repeater.ts",
+    "test:groups": "tsx scripts/validate-groups.ts",
+    "test:disabled": "tsx scripts/validate-disabled-browser.ts",
+    "test:disabled-native": "tsx scripts/validate-native-disabled.ts",
+    "test:appearance": "tsx scripts/validate-appearance.ts",
+    "test:expressions": "tsx scripts/validate-expression-browser.ts",
+    "test:expressions-native": "tsx scripts/validate-native-expressions.ts",
+    "test:selection": "tsx scripts/validate-selection.ts",
+    "test:selection-native": "tsx scripts/validate-native-selection.ts",
+    "demo": "tsx src/generate.ts examples/hello.project.json output/demo",
+    "test:demo": "npm run demo && node scripts/validate-demo.mjs",
+    "test:corpus": "node --experimental-strip-types --test research/container/*.test.ts",
+    "test:all": "node --experimental-strip-types --test tests/*.test.ts research/container/*.test.ts",
+    "test:selection-groups": "tsx scripts/validate-selection-groups.ts",
+    "test:selection-groups-native": "tsx scripts/validate-native-selection-groups.ts",
+    "compare:html": "node scripts/compare-html.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pngjs": "^6.0.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "esbuild": "^0.25.0",
+    "playwright-core": "^1.50.0",
+    "pngjs": "^7.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "description": "Turn Axure RP9 prototypes into semantic UI, HTML and editable React JSX with TypeScript.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "keywords": [
+    "axure",
+    "axure-rp9",
+    "typescript",
+    "jsx",
+    "react",
+    "prototype",
+    "parser",
+    "code-generator"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/renaesop/axurecraft.git"
+  },
+  "homepage": "https://github.com/renaesop/axurecraft#readme",
+  "bugs": {
+    "url": "https://github.com/renaesop/axurecraft/issues"
+  }
+}

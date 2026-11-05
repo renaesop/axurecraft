@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">AxureCraft</title>
+  <desc id="desc">From prototype to editable code. RP9 to semantic UI to HTML and JSX.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#10162e"/><stop offset="1" stop-color="#232048"/></linearGradient>
+    <linearGradient id="accent" x2="1" y2="1"><stop stop-color="#a5b4fc"/><stop offset="1" stop-color="#67e8f9"/></linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#a5b4fc" stroke-opacity=".06"/></pattern>
+  </defs>
+  <rect width="1200" height="360" rx="24" fill="url(#bg)"/>
+  <rect width="1200" height="360" rx="24" fill="url(#grid)"/>
+  <g transform="translate(64 58)">
+    <rect width="64" height="64" rx="17" fill="url(#accent)"/>
+    <path d="M15 45L32 16L49 45M23 33H41" stroke="#17203d" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="152" y="106" fill="#f8fafc" font-family="system-ui, sans-serif" font-size="49" font-weight="700" letter-spacing="-1">AxureCraft</text>
+  <text x="64" y="179" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="28">From prototype to editable code.</text>
+  <text x="64" y="219" fill="#a5b4cf" font-family="system-ui, sans-serif" font-size="18">A TypeScript parser and semantic UI compiler for Axure RP9.</text>
+  <g font-family="ui-monospace, monospace" font-size="17" text-anchor="middle">
+    <rect x="64" y="264" width="100" height="40" rx="10" fill="#a5b4fc" fill-opacity=".12" stroke="#a5b4fc" stroke-opacity=".4"/>
+    <text x="114" y="290" fill="#c7d2fe">.rp</text>
+    <path d="M181 284H222M215 278L222 284L215 290" fill="none" stroke="#7c8eb4" stroke-width="2"/>
+    <rect x="242" y="264" width="180" height="40" rx="10" fill="#67e8f9" fill-opacity=".08" stroke="#67e8f9" stroke-opacity=".4"/>
+    <text x="332" y="290" fill="#a5f3fc">Semantic UI</text>
+    <path d="M440 284H481M474 278L481 284L474 290" fill="none" stroke="#7c8eb4" stroke-width="2"/>
+    <rect x="501" y="264" width="180" height="40" rx="10" fill="#a5b4fc" fill-opacity=".12" stroke="#a5b4fc" stroke-opacity=".4"/>
+    <text x="591" y="290" fill="#c7d2fe">HTML / JSX</text>
+  </g>
+  <g transform="translate(853 77) rotate(8 110 100)">
+    <rect x="20" y="16" width="210" height="208" rx="16" fill="#67e8f9" fill-opacity=".08" stroke="#67e8f9" stroke-opacity=".25"/>
+    <rect width="210" height="208" rx="16" fill="#1b2442" stroke="#818cf8" stroke-opacity=".5"/>
+    <path d="M0 44H210" stroke="#818cf8" stroke-opacity=".3"/>
+    <circle cx="22" cy="22" r="4" fill="#a5b4fc"/><circle cx="38" cy="22" r="4" fill="#a5b4fc" opacity=".6"/><circle cx="54" cy="22" r="4" fill="#a5b4fc" opacity=".3"/>
+    <path d="M65 82L36 111L65 140M145 82L174 111L145 140M118 73L94 149" fill="none" stroke="url(#accent)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="36" y="173" width="138" height="5" rx="2.5" fill="#818cf8" opacity=".3"/>
+  </g>
+</svg>

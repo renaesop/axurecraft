@@ -1,0 +1,9 @@
+node_modules/
+downloads/
+output/
+# Local research contains third-party binaries, samples and machine-specific evidence.
+research/
+.DS_Store
+*.log
+.env
+.env.*

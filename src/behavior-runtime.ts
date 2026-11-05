@@ -1,9 +1,10 @@
 import type { Action, Behavior, Scalar } from './model.ts';
-import { axureBoolean, evaluateExpression, snapshotExpression, type ExpressionContext } from './expression.ts';
+import { axureBoolean, evaluateExpression, snapshotExpression, bindExpression, type ExpressionContext } from './expression.ts';
 import {motionAxes} from './motion.ts';
 
 export interface BehaviorHost extends ExpressionContext {
   behaviors(id: string): Behavior[];
+  resolveTargets?(id:string):string[];
   isDisabled(id: string): boolean;
   canSelect?(id: string): boolean;
   selectionEventState?(id: string): boolean;
@@ -24,6 +25,7 @@ export async function executeActions(actions: Action[], host: BehaviorHost, dept
   };
   for (const action of actions) {
     if (host.cancelled?.()) return;
+    if(action.target&&host.resolveTargets){const targets=host.resolveTargets(action.target);if(targets.length!==1||targets[0]!==action.target){for(const target of targets){const mapped={...action,target};if(mapped.expression)mapped.expression=bindExpression(mapped.expression,id=>id===action.target?target:id,()=>undefined);await executeActions([mapped],host,depth+1);}continue;}}
     if (action.kind === 'branch') {
       const branch = action.branches?.find(b => !b.condition || axureBoolean(evaluateExpression(b.condition, host)));
       if (branch) await executeActions(branch.actions, host, depth + 1);
@@ -58,10 +60,11 @@ export async function executeActions(actions: Action[], host: BehaviorHost, dept
       for(const values of [r.values,...r.rows??[]])for(const value of Object.values(values??{}))if(value.kind==='expression')value.expression=snapshotExpression(value.expression,host);
       await host.apply({...action,repeaterAction:r});
     } else if(action.motion){
-      const motion={...action.motion};let valid=true;
+      const motion=structuredClone(action.motion);let valid=true;
+      for(const [key,e]of Object.entries(motion.bounds??{})){const value=evaluateExpression(e,host);if(value===undefined||!Number.isFinite(Number(value))){valid=false;break;}motion.bounds![key as 'left']={kind:'literal',value:Number(value)};}
       for(const key of motionAxes)if(motion[key]){const value=evaluateExpression(motion[key]!,host);if(value===undefined||!Number.isFinite(Number(value))){valid=false;break;}motion[key]={kind:'literal',value:Number(value)};}
-      if(valid)await host.apply({...action,motion});
-    } else if(action.kind==='link'&&action.expression){
+      if(valid){await host.apply({...action,motion});if(action.target&&action.kind==='move')await fire(action.target,'move');if(action.target&&action.kind==='rotate'){const id=action.target;if(motion.easing&&motion.duration)setTimeout(()=>void fire(id,'rotate'),motion.duration);else await fire(id,'rotate');}}
+    } else if((action.kind==='link'||action.kind==='set-image'||action.kind==='repeater-page')&&action.expression){
       const value=evaluateExpression(action.expression,host);
       if(value!==undefined)await host.apply({...action,value:String(value)});
     } else await host.apply(action);

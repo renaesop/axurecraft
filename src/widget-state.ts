@@ -1,5 +1,6 @@
 import type { Behavior, Widget, WidgetAppearance, WidgetContent } from './model.ts';
 import { flattenWidgets } from './repeater-model.ts';
+import {visibleDiagramBounds} from './groups.ts';
 import type {Geometry} from './motion.ts';
 const supportsDisabled = (kind: Widget['kind']): boolean => ['group', 'panel', 'shape', 'image', 'control'].includes(kind);
 
@@ -13,7 +14,12 @@ export function appearanceVariant(variants:{disabled?:unknown;selected?:unknown}
 /** Rendering metadata. It is derived from Project, not part of editable content. */
 export interface WidgetStateDefinition {
   id: string;
+  adaptive?:Widget['adaptive'];
   geometry?: Geometry;
+  fixed?:boolean;
+  instance?:Widget['instance'];
+  tree?:Widget['tree'];
+  imageAssets?:Partial<Record<import('./model.ts').ImageState,string|null>>;
   kind: Widget['kind'];
   visible: boolean;
   disabled: boolean;
@@ -25,6 +31,9 @@ export interface WidgetStateDefinition {
   hasDisabledAppearance?: boolean;
   children: string[];
   states: string[];
+  stateNames?:Record<string,string>;
+  stateSizes?:Record<string,{width:number;height:number}>;
+  percentWidth?:boolean;
   behaviors: Behavior[];
   rowInstance: boolean;
   appearance?: {normal:ResolvedAppearance;disabled?:ResolvedAppearance;selected?:ResolvedAppearance};
@@ -37,7 +46,8 @@ function selectionControl(widget:Widget):'checkbox'|'radio'|undefined {
 
 export function describeWidgets(widgets: Widget[]): WidgetStateDefinition[] {
   return flattenWidgets(widgets).map(w => ({
-    id: w.id, kind: w.kind, visible: w.css.display !== 'none',
+    id: w.id, adaptive:w.adaptive, kind: w.kind,tree:w.tree,fixed:!!w.panel?.fixed,instance:w.instance,
+    imageAssets:w.kind==='image'?{normal:w.content.find(c=>c.kind==='image')?.asset,...Object.fromEntries(Object.entries(w.variants??{}).flatMap(([key,v])=>{const image=v.content?.find(c=>c.kind==='image');return image?[[key,image.asset]]:[];}))}:undefined, visible: w.css.display !== 'none',
     geometry:{x:w.x,y:w.y,width:w.width,height:w.height,rotation:parseFloat(/rotate\(([-.\d]+)/.exec(w.css.transform??'')?.[1]??'0')},
     selectionControl: selectionControl(w),
     radioGroup: w.content.flatMap(c => c.kind === 'control' && c.control === 'radio' && c.group ? [c.group] : [])[0],
@@ -47,6 +57,8 @@ export function describeWidgets(widgets: Widget[]): WidgetStateDefinition[] {
     selected: w.selected ?? w.content.some(c=>c.kind==='control'&&c.checked),
     disabled: w.disabled ?? w.content.some(c => c.kind === 'control' && c.disabled),
     children: [...(w.children ?? []), ...(w.states ?? []).flatMap(s => s.widgets)].map(c => c.id),
+    stateSizes:w.panel?.fitToContent?Object.fromEntries((w.states??[]).map(s=>{const b=visibleDiagramBounds(s.widgets);return [s.id,{width:b.right,height:b.bottom}];})):undefined,percentWidth:w.panel?.percentWidth,
+    stateNames:w.states?Object.fromEntries(w.states.map(s=>[s.id,s.name])):undefined,
     states: (w.states ?? []).map(s => s.id), behaviors: w.behaviors, rowInstance: !!w.instance,
     ...(w.variants?{appearance:{normal:{css:w.css,content:w.content},...Object.fromEntries(Object.entries(w.variants).map(([name,value])=>[name,{...value,content:value.content??w.content}]))}}:{}),
   }));

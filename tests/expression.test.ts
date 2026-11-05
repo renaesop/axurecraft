@@ -51,3 +51,12 @@ test('missing row values do not become false text assignments', async () => {
   });
   assert.equal(writes,0);
 });
+
+test('search filters chain lowercase/indexOf and date methods read an injected clock',()=>{
+ const context={readWidget:()=>undefined,now:()=>Date.UTC(2024,1,29,12,34,56,789)};
+ const compile=(text:string)=>parseFormula(text,name=>name==='Now'?{kind:'now'}:{kind:'literal',value:'  Alpha BETA  '});
+ assert.equal(evaluateExpression(compile("query.trim().toLowerCase().indexOf('beta')"),context),6);
+ assert.equal(evaluateExpression(compile('Now.getFullYear()'),context),new Date(context.now()).getFullYear());
+ assert.equal(evaluateExpression(compile('Now.getMilliseconds()'),context),789);
+ assert.throws(()=>compile('query.constructor()'),/Unsupported/);
+});

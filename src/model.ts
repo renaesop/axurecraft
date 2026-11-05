@@ -1,11 +1,14 @@
 /** Editable UI model. RP storage details stay in the lossless AST and source references.
  * This describes visual widgets and supported behavior, not inferred business components.
  */
-export type WidgetProperty='text'|'selected'|'x'|'y'|'width'|'height'|'rotation'|'visible'|'disabled'|'itemCount'|'visibleItemCount'|'dataCount'|'pageCount'|'pageIndex';
+export type WidgetProperty='left'|'right'|'top'|'bottom'|'state'|'text'|'selected'|'x'|'y'|'width'|'height'|'rotation'|'visible'|'disabled'|'itemCount'|'visibleItemCount'|'dataCount'|'pageCount'|'pageIndex';
 export type Scalar = string | number | boolean;
 export type BinaryOperator = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '>' | '<' | '>=' | '<=' | '&&' | '||';
 /** Portable, inspectable expressions; native RP references are resolved during conversion. */
 export type UIExpression =
+    | {kind:'row-index'}
+    | {kind:'event';property:string}
+    | {kind:'now'}
     | { kind: 'literal'; value: Scalar }
     | { kind: 'widget'; target: string; property: WidgetProperty }
     | { kind: 'variable'; name: string }
@@ -14,13 +17,14 @@ export type UIExpression =
     | { kind: 'concat'; parts: UIExpression[] }
     | { kind: 'binary'; operator: BinaryOperator; left: UIExpression; right: UIExpression }
     | { kind: 'unary'; operator: '+' | '-' | '!'; operand: UIExpression }
-    | { kind: 'call'; method: 'slice' | 'toFixed'; receiver: UIExpression; args: UIExpression[] };
+    | { kind: 'call'; method: import('./expression-methods.ts').FormulaMethod; receiver: UIExpression; args: UIExpression[] };
 export interface ConditionalBranch {
     condition?: UIExpression;
     actions: Action[];
 }
+export type ImageState='normal'|'selected'|'disabled'|'hover'|'pressed';
 export interface Action {
-    kind: 'link' | 'back' | 'refresh' | 'show' | 'hide' | 'toggle' | 'state' | 'enable' | 'wait' | 'move' | 'resize' | 'rotate' | 'repeater-data' | 'repeater-sort' | 'repeater-page' | 'focus' | 'fire-event' | 'set-text' | 'set-selected' | 'set-variable' | 'branch';
+    kind: 'link' | 'back' | 'refresh' | 'show' | 'hide' | 'toggle' | 'state' | 'enable' | 'wait' | 'move' | 'resize' | 'rotate' | 'set-image' | 'tree-toggle' | 'adaptive-view' | 'repeater-data' | 'repeater-sort' | 'repeater-page' | 'focus' | 'fire-event' | 'set-text' | 'set-selected' | 'set-variable' | 'branch';
     target?: string;
     value?: string | number | boolean;
     sort?: RepeaterSort;
@@ -28,11 +32,15 @@ export interface Action {
     expression?: UIExpression;
     variable?: string;
     includeVariables?: boolean;
+    imageState?:ImageState;
     navigation?: 'current' | 'new' | 'popup' | 'parent' | 'frame' | 'parent-frame';
     windowFeatures?: string;
     loop?: boolean;
     transition?: {show:number;hide:number;showDuration:number;hideDuration:number;bringToFront?:boolean};
+    popup?:{mode:'flyout'|'lightbox';source?:string;background?:string};
+    compression?: {vertical:boolean;easing:number;duration:number};
     motion?: {
+        bounds?:Partial<Record<'left'|'right'|'top'|'bottom',UIExpression>>;
         x?: UIExpression; y?: UIExpression; width?: UIExpression; height?: UIExpression;
         angle?: UIExpression; offsetX?: UIExpression; offsetY?: UIExpression;
         relative?: boolean; clockwise?: boolean; anchor?: string; duration?: number; easing?: number;
@@ -46,6 +54,7 @@ export interface Behavior {
 }
 export type Css = Record<string, string>;
 export interface TextRun {
+    link?: {behaviors:Behavior[]};
     text: string;
     css: Css;
 }
@@ -120,6 +129,9 @@ export interface FormControl {
     inputType?: import('./controls.ts').InputType;
     hideHintOnFocus?: boolean;
     richLabel?: RichText;
+    indicator?:Css;
+    multiple?:boolean;
+    selectedValues?:string[];
     options?: {
         label: string;
         value: string;
@@ -198,6 +210,7 @@ export interface RepeaterState {
 }
 /** Canonical repeater definition. Derive visible instances from template + rows + bindings. */
 export interface RepeaterData {
+    itemLoad?:Behavior[];
     columns: {
         id: number;
         name: string;
@@ -224,6 +237,7 @@ export interface RepeaterData {
     templateSource: SourceReference;
 }
 export interface Widget {
+    adaptive?:Record<string,import('./adaptive.ts').AdaptivePaint>;
     id: string;
     /** Native class shorthand, retained for compatibility; kind is the UI classification. */
     type: string;
@@ -242,9 +256,10 @@ export interface Widget {
     selected?: boolean;
     selectionGroup?: string;
     variants?: { disabled?: WidgetAppearance; selected?: WidgetAppearance };
-    kind: 'group' | 'shape' | 'image' | 'hotspot' | 'panel' | 'repeater' | 'table' | 'menu' | 'frame' | 'control' | 'unsupported';
+    kind: 'group' | 'shape' | 'image' | 'hotspot' | 'panel' | 'repeater' | 'table' | 'menu' | 'frame' | 'tree' | 'control' | 'unsupported';
     /** Fixed native table tracks; children are cells in row-major order. */
     panel?: import('./panel.ts').PanelLayout;
+    tree?: import('./tree.ts').TreeNode;
     table?: { rowHeights: number[]; columnWidths: number[] };
     repeater?: RepeaterData;
     /** Derived view only: materializeRepeater adds this; conversion does not serialize it. */
@@ -263,6 +278,7 @@ export interface Widget {
     }[];
 }
 export interface Page {
+    adaptive?:import('./adaptive.ts').AdaptiveDefinition;
     alignment?: 'left' | 'center';
     /** Authored left edge, retained separately from source coordinates. */
     contentLeft?: number;

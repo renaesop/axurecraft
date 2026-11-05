@@ -29,3 +29,11 @@ export function nextPanelState(states:string[],current:string|undefined,value:un
  if(typeof value==='number')return states[Math.max(0,Math.min(states.length-1,Math.floor(value)-1))];
  return typeof value==='string'&&states.includes(value)?value:undefined;
 }
+
+const stateTimers=new Map<string,ReturnType<typeof setTimeout>>();
+/** Native state-change events run after both incoming and outgoing transitions finish. */
+export function schedulePanelEvent(id:string,transition:import('./model.ts').Action['transition'],fire:()=>void):void {
+ clearTimeout(stateTimers.get(id));const duration=Math.max(transition?.show?transition.showDuration:0,transition?.hide?transition.hideDuration:0);
+ if(!duration){stateTimers.delete(id);fire();return;}
+ const timer=setTimeout(()=>{stateTimers.delete(id);fire();},duration);stateTimers.set(id,timer);
+}

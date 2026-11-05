@@ -95,7 +95,7 @@ export function repeaterRows(g: Graph, widget: Value, variables: GlobalVariable[
         if (bool(field(kase.body, 'IsNewIfGroup'))) conditional = false;
         const condition = field(kase.body, 'Condition');
         if (condition && guid(number(condition, -1)) !== ZERO_GUID) conditional = true;
-        if (conditional) { problems.add('Conditional repeater load case omitted'); continue; }
+        if (conditional) continue; // Compiled as row-scoped runtime branches by readBehaviors.
         for (const actionNode of children(caseNode)) { const a = semantic(actionNode); if (a) action(a, owner); }
       }
     }

@@ -1,3 +1,4 @@
+import {formulaMethods,type FormulaMethod} from './expression-methods.ts';
 import type { BinaryOperator, UIExpression, WidgetProperty } from './model.ts';
 
 const precedence: Record<BinaryOperator, number> = {
@@ -42,17 +43,17 @@ export function parseFormula(source: string, resolve: (name: string) => UIExpres
     while (cursor < tokens.length) {
       if (tokens[cursor] === '.') {
         cursor++; const method = tokens[cursor++];
-        if(['text','selected','x','y','width','height','rotation','visible','disabled','itemCount','visibleItemCount','dataCount','pageCount','pageIndex'].includes(method)&&left.kind==='widget'){left={...left,property:method as WidgetProperty};continue;}
+        if(['left','right','top','bottom','text','selected','x','y','width','height','rotation','visible','disabled','itemCount','visibleItemCount','dataCount','pageCount','pageIndex'].includes(method)&&left.kind==='widget'){left={...left,property:method as WidgetProperty};continue;}
         if (method === 'length' && tokens[cursor] !== '(') { left = { kind: 'length', value: left }; continue; }
-        if (method !== 'slice' && method !== 'toFixed') throw new Error(`Unsupported formula method ${method}`);
+        if (!Object.hasOwn(formulaMethods,method)) throw new Error(`Unsupported formula method ${method}`);
         take('('); const args: UIExpression[] = [];
         if (tokens[cursor] !== ')') {
           args.push(parse(0, depth + 1));
           while (tokens[cursor] === ',') { cursor++; args.push(parse(0, depth + 1)); }
         }
         take(')');
-        if (args.length > (method === 'slice' ? 2 : 1)) throw new Error(`Invalid ${method} argument count`);
-        left = { kind: 'call', method, receiver: left, args }; continue;
+        if (args.length > formulaMethods[method as FormulaMethod]) throw new Error(`Invalid ${method} argument count`);
+        left = { kind: 'call', method:method as FormulaMethod, receiver: left, args }; continue;
       }
       const operator = tokens[cursor] as BinaryOperator, rank = Object.hasOwn(precedence, operator) ? precedence[operator] : undefined;
       if (rank === undefined || rank < minimum) break;

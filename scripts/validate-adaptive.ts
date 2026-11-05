@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import {readFileSync,writeFileSync} from 'node:fs';import {resolve,join} from 'node:path';import {pathToFileURL} from 'node:url';import {chromium} from 'playwright-core';
+import {emitProject} from '../src/emit.ts';import {parseSemanticProject} from '../src/semantic.ts';import {widgetStyle} from '../src/render-tree.ts';import type {Widget} from '../src/model.ts';
+const project=parseSemanticProject(readFileSync('examples/hello.project.json','utf8')),page=project.pages[0],base=page.widgets[0];project.pages=[page];
+const box=(id:string,x:number,y:number):Widget=>({...structuredClone(base),id,name:id,x,y,width:100,height:40,kind:'shape',type:'VectorShape',css:{background:'rgb(255, 0, 0)'},content:[],behaviors:[],variants:undefined});
+const field=box('field',30,100);field.kind='control';field.type='TextBox';field.content=[{kind:'control',control:'text',label:'value',value:'initial',placeholder:'',disabled:false,readOnly:false}];
+const shape=box('shape',30,180);shape.content=[{kind:'text',css:{},paragraphs:[{css:{},runs:[{text:'base',css:{}}]}]}];
+for(const w of [shape,field])w.adaptive=Object.fromEntries(['base','phone','large'].map((id,i)=>{const content=structuredClone(w.content);if(content[0].kind==='text')content[0].paragraphs[0].runs[0].text=id;return [id,{x:w.x+i*20,y:w.y,width:100+i*30,height:40,css:{...widgetStyle(w),left:w.x+i*20+'px',width:100+i*30+'px',background:['rgb(255, 0, 0)','rgb(0, 128, 0)','rgb(0, 0, 255)'][i]},content}];}));
+const button=(id:string,x:number,value:string):Widget=>({...box(id,x,20),kind:'control',type:'Button',content:[{kind:'control',control:'button',label:id,value:id,placeholder:'',disabled:false,readOnly:false}],behaviors:[{event:'click',actions:[{kind:'adaptive-view',value}]}]});
+page.widgets=[field,shape,button('Force base',20,'base'),button('Auto',140,'auto')];page.width=900;page.height=500;page.behaviors=[];page.adaptive={defaultId:'base',views:[{id:'base',name:'Base',width:0,height:0},{id:'phone',name:'Phone',width:375,height:667,parent:'large'},{id:'large',name:'Large',width:1200,height:0,parent:'base'}],layouts:Object.fromEntries(['base','phone','large'].map(id=>[id,{width:900,height:500,background:'#fff'}]))};
+const out=resolve('output/adaptive-check');await emitProject(parseSemanticProject(JSON.stringify(project)),new Map(),out,'original-adaptive-fixture.json');
+const browser=await chromium.launch({executablePath:process.env.CHROME_PATH??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});const errors:string[]=[],results:unknown[]=[];
+try{const tab=await browser.newPage({viewport:{width:600,height:800}});tab.on('pageerror',e=>errors.push(e.message));for(const renderer of ['','react']){
+ await tab.setViewportSize({width:600,height:800});await tab.goto(pathToFileURL(join(out,renderer,page.file)).href,{waitUntil:'networkidle'});
+ const input=tab.getByLabel('value');await input.fill('keep me');await input.evaluate(el=>(window as any).savedInput=el);
+ const check=async(text:string,x:number)=>{assert.equal(await tab.locator('#shape').textContent(),text);assert.equal((await tab.locator('#shape').boundingBox())?.x,x);assert.equal(await input.inputValue(),'keep me');assert.equal(await input.evaluate(el=>el===(window as any).savedInput),true);};
+ await check('phone',50);await tab.setViewportSize({width:1400,height:800});await tab.waitForTimeout(80);await check('large',70);
+ await tab.getByRole('button',{name:'Force base',exact:true}).click();await check('base',30);await tab.setViewportSize({width:650,height:800});await tab.waitForTimeout(80);await check('base',30);
+ await tab.getByRole('button',{name:'Auto',exact:true}).click();await check('phone',50);await tab.setViewportSize({width:300,height:800});await tab.waitForTimeout(80);await check('base',30);
+ results.push({renderer:renderer||'html',breakpoints:true,content:true,manualAndAuto:true,inputIdentityAndValue:true});
+}assert.deepEqual(errors,[]);writeFileSync(join(out,'validation.json'),JSON.stringify({results,errors},null,2));console.log(results);}finally{await browser.close();}

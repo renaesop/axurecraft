@@ -8,6 +8,8 @@ export function readWidgetValue(id: string, property: WidgetProperty): Scalar | 
   const widget = document.getElementById(id);
   if (!widget) return undefined;
   if(['x','y','width','height','rotation'].includes(property))return readGeometry(id)?.[property as 'x'|'y'|'width'|'height'|'rotation'];
+  if(['left','right','top','bottom'].includes(property)){const r=widget.getBoundingClientRect();return r[property as 'left'|'right'|'top'|'bottom']+(['left','right'].includes(property)?scrollX:scrollY);}
+  if(property==='state'){const states=[...widget.querySelectorAll<HTMLElement>(':scope > .rp-state')];return (states.find(s=>s.dataset.state===widget.dataset.activeState)??states.find(s=>!s.hidden))?.dataset.stateName;}
   if(property==='visible')return getComputedStyle(widget).display!=='none';
   if(property==='disabled')return widget.getAttribute('aria-disabled')==='true';
   const input = ownedElement<HTMLInputElement>(widget, 'input,textarea,select');

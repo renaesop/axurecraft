@@ -22,3 +22,7 @@ test('motion expressions read current variables; invalid axes do not partially a
 test('panel steps clamp or loop and state numbers are one based',()=>{
  const states=['a','b'];assert.equal(nextPanelState(states,'b','next',false),'b');assert.equal(nextPanelState(states,'a','previous',false),'a');assert.equal(nextPanelState(states,'b','next',true),'a');assert.equal(nextPanelState(states,'a',2),'b');assert.equal(nextPanelState([],'a','next'),undefined);
 });
+test('drag boundaries clamp global edges in a parent-relative coordinate frame',()=>{
+ const result=movedGeometry(before,{kind:'move',motion:{relative:true,x:literal(300),bounds:{left:literal(100),right:literal(300)}}},{x:100,y:0});assert.equal(result.x,100);
+ const left=movedGeometry(before,{kind:'move',motion:{relative:true,x:literal(-300),bounds:{left:literal(100),right:literal(300)}}},{x:100,y:0});assert.equal(left.x,0);
+});

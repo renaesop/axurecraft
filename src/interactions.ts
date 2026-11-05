@@ -1,20 +1,22 @@
+import {backdropColor} from './popups.ts';
 import {readRepeaterAction} from './native-repeater-actions.ts';
+import {datasetColumns,nativeColumnId,type NativeContext} from './native-reference.ts';
 import { nativeExpressions } from './native-expression.ts';
 import {readLinkTarget} from './native-link.ts';
 import { bool, field, items, number, object, prop, str, type Graph, type Value } from './graph.ts';
 import type { Action, Behavior, ConversionIssue, ConditionalBranch, GlobalVariable } from './model.ts';
 
 // RP9 event numbers and action fields are taken from the serialized object graph.
-const events: Record<number, string> = { 16: 'click', 17: 'dblclick', 18: 'mouseenter', 19:'mousemove', 20: 'mouseleave',21:'mousedown',22:'mouseup',32:'keydown',33:'keyup',51:'selectionchange',323:'contextmenu', 48: 'focus', 49: 'blur', 50: 'textchange', 52: 'selectedchange', 53: 'select', 54: 'unselect', 288: 'load', 320: 'load', 289: 'itemload' };
+const events: Record<number, string> = { 16: 'click', 17: 'dblclick', 18: 'mouseenter', 19:'mousemove', 20: 'mouseleave',21:'mousedown',22:'mouseup',32:'keydown',33:'keyup',51:'selectionchange',323:'contextmenu',256:'swipeleft',257:'swiperight',258:'swipeup',259:'swipedown',272:'dragstart',273:'drag',274:'dragdrop',321:'resize',322:'scroll',324:'scrolldown',325:'scrollup',337:'longclick',338:'adaptivechange',276:'show',277:'hide',275:'move',278:'statechange',279:'rotate', 48: 'focus', 49: 'blur', 50: 'textchange', 52: 'selectedchange', 53: 'select', 54: 'unselect', 288: 'load', 320: 'load', 289: 'itemload' };
 const zeroGuid = '00000000000000000000000000000000';
 
-export function readBehaviors(g: Graph, owner: Value, pageByGuid: Map<string, string>, issues: ConversionIssue[], rowBindings=false, variables: GlobalVariable[] = [], asset?:(v:Value|undefined)=>string|undefined): Behavior[] {
+export function readBehaviors(g: Graph, owner: Value, pageByGuid: Map<string, string>, issues: ConversionIssue[], rowBindings=false, variables: GlobalVariable[] = [], asset?:((v:Value|undefined)=>string|undefined),context:NativeContext={}): Behavior[] {
   const map = prop(g, owner, 'InteractionMap') ?? prop(g, owner, 'interactionmap');
   if (!map) return [];
   const report = (feature: string, detail: string): void => {
     issues.push({ widget: owner.id === undefined ? undefined : `w-${g.guids[owner.id - 1]}`, feature, detail });
   };
-  const expressions = nativeExpressions(g, owner, variables);
+  const expressions = nativeExpressions(g, owner, variables,undefined,context);
   const nodeTable = field(map.body, 'node-table');
   const target = (node: Value): Value | undefined => object(g, nodeTable?.entries?.find(([key]) => number(key, -1) === node.id)?.[1]);
   const children = (node: Value | undefined): Value[] => items(field(node?.body, 'children')).map(v => object(g, v)).filter((v): v is Value => !!v);
@@ -24,11 +26,24 @@ export function readBehaviors(g: Graph, owner: Value, pageByGuid: Map<string, st
     if (!value || items(field(value.body, 'scope')).length || field(value.body, 'scope')?.entries?.length) return undefined;
     return field(value.body, 'value')?.tag === 8 ? str(field(value.body, 'value')) : undefined;
   };
-  const decode = (action: Value): Action[] => {
+  const decode = (action: Value,skipNormalImage=false): Action[] => {
     if (bool(field(action.body, 'Disabled'))) return [];
     const name = action.className ?? 'unknown action';
     const fail = (detail: string): Action[] => { report('interaction-action', `${name}: ${detail}`); return []; };
-    try{const repeated=readRepeaterAction(g,owner,action,variables,asset);if(repeated)return repeated;}catch(error){return fail(String(error));}
+    try{const repeated=readRepeaterAction(g,owner,action,variables,asset,context);if(repeated)return repeated;}catch(error){return fail(String(error));}
+    if(name==='Axure:InteractionSetImageAction'){
+      try{
+        const paths=items(field(action.body,'ImagePaths')),infos=items(field(action.body,'ImageStatesInfos'));if(paths.length!==infos.length)throw new Error('Image parameters differ');
+        return paths.flatMap((path,i)=>{const target=expressions.target(object(g,path)),info=object(g,infos[i]);const result:Action[]=[];
+          for(const [native,imageState]of [['Normal','normal'],['Selected','selected'],['Disabled','disabled'],['MouseOver','hover'],['MouseDown','pressed']] as const){
+            if(skipNormalImage&&imageState==='normal')continue;
+            const state=prop(g,info,native);if(!state)continue;
+            if(bool(field(state.body,'is-static-image'))){const image=field(state.body,'static-image');if(!str(field(image,'Hash'))&&!field(image,'Stream'))continue;const value=asset?.(image);if(!value)throw new Error('Set image resource is missing');result.push({kind:'set-image',target,value,imageState});}
+            else result.push({kind:'set-image',target,imageState,expression:expressions.compile(prop(g,state,'image-literal'),target)});
+          }return result;
+        });
+      }catch(error){return fail(String(error));}
+    }
     if(name==='Axure:InteractionSetFocusOnWidgetAction'){
       try{return items(field(action.body,'panelobjectpaths')).map(path=>({kind:'focus',target:expressions.target(object(g,path)),value:bool(field(action.body,'SelectTextOnFocus'))}));}catch(error){return fail(String(error));}
     }
@@ -82,14 +97,19 @@ export function readBehaviors(g: Graph, owner: Value, pageByGuid: Map<string, st
       try{return paths.map((path,index)=>{
         const target=expressions.target(object(g,path)),info=object(g,infos[index]);
         const mode=number(field(info?.body,kind==='rotate'?'RotateType':'MoveType'));
-        if(kind==='move'&&mode!==0&&mode!==1)throw new Error(`Move mode ${mode} needs drag context`);
+        if(kind==='move'&&![0,1,2,3,4].includes(mode))throw new Error(`Move mode ${mode} needs drag context`);
         const motion:NonNullable<Action['motion']>={relative:mode===1,duration:number(field(info?.body,kind==='resize'?'duration':'Duration')),easing:number(field(info?.body,kind==='resize'?'easing':'Easing')),anchor:str(field(info?.body,kind==='resize'?'anchor':'Anchor'))||undefined};
         if(kind==='rotate')motion.clockwise=bool(field(info?.body,'Clockwise'),true);
         const fields=kind==='move'?{x:'XValue',y:'YValue'}:kind==='resize'?{width:'width',height:'height'}:{angle:'Degree',offsetX:'OffsetX',offsetY:'OffsetY'};
         for(const [key,fieldName]of Object.entries(fields))if(field(info?.body,fieldName))motion[key as 'x'|'y'|'width'|'height'|'angle'|'offsetX'|'offsetY']=expressions.compile(prop(g,info,fieldName),target);
+        if(kind==='move'&&[2,3,4].includes(mode)){motion.relative=true;motion.x=mode===4?{kind:'literal',value:0}:{kind:'event',property:'dragx'};motion.y=mode===3?{kind:'literal',value:0}:{kind:'event',property:'dragy'};}
+        const boundary=prop(g,info,'BoundaryCondition');
+        const bounds=(node:Value|undefined):void=>{if(!node)return;const op=number(field(node.body,'operation'));if(op===1){bounds(prop(g,node,'left-expr'));bounds(prop(g,node,'right-expr'));return;}const left=prop(g,node,'left-expr'),direction=str(field(left?.body,'boundaryDirection'));if(!['left','right','top','bottom'].includes(direction)||!([7,8].includes(op)))throw new Error('Unsupported motion boundary comparison');motion.bounds={...motion.bounds,[direction]:expressions.compile(prop(g,node,'right-expr'),target)};};
+        if(boundary)bounds(boundary);
         return {kind,target,motion};
       });}catch(error){return fail(String(error));}
     }
+    if(name==='Axure:InteractionSetAdaptiveView')return [{kind:'adaptive-view',value:bool(field(action.body,'set_adaptive_view_to_auto'))?'auto':g.guids[number(field(action.body,'set_adaptive_view_id'))-1]}];
     const spec = name === 'Axure:InteractionFadeWidgetAction' ? ['WidgetPaths', 'FadeInfos']
       : name === 'Axure:InteractionSetPanelStateAction' ? ['PanelPaths', 'SetStateInfos']
         : name === 'Axure:InteractionEnableDisableWidgetsAction' ? ['WidgetPaths', 'EnableDisableInfos']
@@ -108,7 +128,9 @@ export function readBehaviors(g: Graph, owner: Value, pageByGuid: Map<string, st
       const info = object(g, infos[i]);
       if (!info) { fail('parameters could not be resolved'); continue; }
       if(spec[1]==='AddSortInfos'){
-        const sortType=number(field(info.body,'sort-type'),-1),columnId=number(field(info.body,'column-id'),-1);
+        const sortType=number(field(info.body,'sort-type'),-1);let columnId=number(field(info.body,'column-id'),-1);
+        const reference=context.references?.get(targetId.slice(2)),data=reference&&prop(reference.graph,reference.widget,'Data');
+        if(reference&&data){try{columnId=nativeColumnId(g,columnId,datasetColumns(reference.graph,data));}catch(error){fail(String(error));continue;}}
         if(![1,2,3].includes(sortType)||columnId<0){fail('unsupported sort type or unresolved column');continue;}
         out.push({kind:'repeater-sort',target:targetId,sort:{columnId,ascending:bool(field(info.body,'ascending')),toggle:bool(field(info.body,'toggle')),label:str(field(info.body,'label')),type:sortType===1?'number':sortType===3?'text-case':'text'}});
       }else if(spec[1]==='SetPageInfos'){
@@ -116,12 +138,13 @@ export function readBehaviors(g: Graph, owner: Value, pageByGuid: Map<string, st
         let value:string|number|undefined;
         if(mode===1)value='previous';else if(mode===2)value='next';else if(mode===3)value='last';
         else if(mode===0){const raw=literal(field(info.body,'page-value'));if(raw!==undefined&&/^\s*\d+\s*$/.test(raw))value=Number(raw);}
-        if(value===undefined){fail('dynamic or unknown repeater page expression');continue;}
+        if(value===undefined&&mode===0){try{out.push({kind:'repeater-page',target:targetId,expression:expressions.compile(prop(g,info,'page-value'),targetId)});}catch(error){fail(String(error));}continue;}
+        if(value===undefined){fail('unknown repeater page mode');continue;}
         out.push({kind:'repeater-page',target:targetId,value});
       }else if (spec[1] === 'FadeInfos') {
         const kind = number(field(info.body, 'fade-action-type'), -1);
-        if (![0, 1, 2].includes(kind) || ![0,1].includes(number(field(info.body, 'show-type')))) { fail('unsupported visibility mode'); continue; }
-        out.push({ kind: kind === 0 ? 'hide' : kind === 1 ? 'show' : 'toggle', target: targetId,transition:{show:number(field(info.body,'easing')),hide:number(field(info.body,'EasingHide')),showDuration:number(field(info.body,'duration')),hideDuration:number(field(info.body,'DurationHide')),bringToFront:bool(field(info.body,'BringToFront'))||number(field(info.body,'show-type'))===1} });
+        if (![0, 1, 2].includes(kind) || ![0,1,2,3,4].includes(number(field(info.body, 'show-type')))) { fail('unsupported visibility mode'); continue; }
+        out.push({ kind: kind === 0 ? 'hide' : kind === 1 ? 'show' : 'toggle', target: targetId,...([2,3].includes(number(field(info.body,'show-type')))?{popup:{mode:number(field(info.body,'show-type'))===2?'lightbox' as const:'flyout' as const,source:`w-${g.guids[owner.id!-1]}`,background:backdropColor(number(field(info.body,'page-background')))}}:{}),...(number(field(info.body,'show-type'))===4?{compression:{vertical:bool(field(info.body,'vertical')),easing:number(field(info.body,'compress-easing')),duration:number(field(info.body,'compress-duration'))}}:{}),transition:{show:number(field(info.body,'easing')),hide:number(field(info.body,'EasingHide')),showDuration:number(field(info.body,'duration')),hideDuration:number(field(info.body,'DurationHide')),bringToFront:bool(field(info.body,'BringToFront'))||number(field(info.body,'show-type'))===1} });
       } else if (spec[1] === 'EnableDisableInfos') {
         const enabled = field(info.body, 'enable');
         if (enabled?.tag !== 25) { fail('expected RP9 boolean enable value'); continue; }
@@ -156,6 +179,7 @@ export function readBehaviors(g: Graph, owner: Value, pageByGuid: Map<string, st
       groups.at(-1)!.push(caseNode);
     }
     for (const group of groups) {
+      const conditionalGroup=group.some(node=>{const c=field(target(node)?.body,'Condition');return !!c&&g.guids[number(c,-1)-1]!==zeroGuid;});
       const branches: ConditionalBranch[] = [];
       let invalid = false;
       for (const caseNode of group) {
@@ -171,8 +195,8 @@ export function readBehaviors(g: Graph, owner: Value, pageByGuid: Map<string, st
           if (!action) { report('interaction-action', 'Action tree reference could not be resolved'); continue; }
           // Static row load bindings are compiled by repeaterRows. Dynamic text
           // assignments remain runtime actions and must not be silently skipped.
-          if (rowBindings && [288, 289].includes(eventType)) {
-            if (action.className === 'Axure:InteractionSetImageAction') continue;
+          if (rowBindings && !conditionalGroup && [288, 289].includes(eventType)) {
+            if (action.className === 'Axure:InteractionSetImageAction'){branch.actions.push(...decode(action,true));continue;}
             if (action.className === 'Axure:InterationActionSetFunction') {
               try {
                 const compileLoad=(node:Value|undefined,depth=0):Action[]=>{

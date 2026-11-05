@@ -17,14 +17,20 @@ export function elementJsx(node:ElementNode|string,ownerId:string,level=0):strin
   const indent='  '.repeat(level);
   if(typeof node==='string')return indent+`{${json(node)}}`;
   const control=['input','textarea','select','button'].includes(node.tag);
-  const richText=node.attrs.class==='rp-text';
-  const tag=control?'RpControl':richText?'RpText':node.tag;
+  const richText=node.attrs.class==='rp-text',inlineLink=node.attrs.class==='rp-inline-link',image=node.tag==='image'||node.tag==='img'&&node.attrs.class==='rp-image',imageFrame=node.attrs.class==='rp-framed-image';
+  const tag=control?'RpControl':richText?'RpText':inlineLink?'RpLink':image?'RpImage':imageFrame?'RpImageFrame':node.tag;
   const attrs={...node.attrs};
   if(node.tag==='option')delete attrs.selected; // The select owns defaultValue in React.
+  if(inlineLink)delete attrs['data-rp-link'];
   let children=node.children;
   if(node.tag==='textarea'){attrs.value=node.children.filter(v=>typeof v==='string').join('');children=[];}
+  const selectedValues=node.tag==='select'&&node.attrs.multiple?node.children.flatMap(c=>typeof c!=='string'&&c.attrs.selected?[String(c.attrs.value??'')]:[]):undefined;
   const parts=Object.entries(attrs).filter(([,v])=>v!==undefined).map(([key,value])=>`${node.tag==='option'&&key==='value'?'value':attributeName(key)}={${json(value)}}`);
+  if(selectedValues)parts.push(`defaultValue={${json(selectedValues)}}`);
   if(control)parts.unshift(`ownerId={${json(ownerId)}}`,`as={${json(node.tag)}}`);
+  if(image)parts.unshift(`ownerId={${json(ownerId)}}`,`as={${json(node.tag)}}`);
+  if(imageFrame){const child=node.children.find(c=>typeof c!=='string'&&c.tag==='image');parts.unshift(`ownerId={${json(ownerId)}}`,`asset={${json(child&&typeof child!=='string'?child.attrs.href??null:null)}}`);}
+  if(inlineLink)parts.unshift(`ownerId={${json(ownerId)}}`,`behaviors={${String(node.attrs['data-rp-link']??'[]')}}`);
   if(richText)parts.unshift(`ownerId={${json(ownerId)}}`);
   if(node.css)parts.push(`style={${json(reactStyle(node.css))}}`);
   const head=`${indent}<${tag}${parts.length?' '+parts.join(' '):''}`;
@@ -34,9 +40,9 @@ function widgetJsx(w:Widget,level:number,ref?:string):string {
   const indent='  '.repeat(level),id=ref?`${ref}.id`:json(w.id);
   const disabledStyle=w.variants?.disabled?` disabledStyle={${ref?`widgetDisabledCss(${ref})`:json(reactStyle(w.variants.disabled.css))}}`:'';
   const selectedStyle=w.variants?.selected?` selectedStyle={${ref?`widgetSelectedCss(${ref})`:json(reactStyle(w.variants.selected.css))}}`:'';
-  const props=`id={${id}} type={${json(w.type)}} name={${json(w.name)}} style={${ref?`widgetCss(${ref})`:json(reactStyle(widgetStyle(w)))}}${disabledStyle}${selectedStyle} behaviors={${ref?`${ref}.behaviors`:json(w.behaviors)}}`;
+  const props=`${w.tree?`tree={${ref?`${ref}.tree`:json(w.tree)}} `:''}id={${id}} type={${json(w.type)}} name={${json(w.name)}} style={${ref?`widgetCss(${ref})`:json(reactStyle(widgetStyle(w)))}}${disabledStyle}${selectedStyle} behaviors={${ref?`${ref}.behaviors`:json(w.behaviors)}}`;
   const paints=Object.entries(w.variants??{}).filter(([,value])=>value.content);
-  const content=ref?[`${indent}  <RpContent ownerId={${id}} content={${ref}.content} variants={${ref}.variants} />`]:paints.length?[
+  const content=w.adaptive&&!ref?[`${indent}  <RpContent ownerId={${id}} content={${json(w.content)}} variants={${json(w.variants)}} />`]:ref?[`${indent}  <RpContent ownerId={${id}} content={${ref}.content} variants={${ref}.variants} />`]:paints.length?[
     `${indent}  <RpAppearance ownerId={${id}} variants={${json(Object.keys(w.variants!))}}>{(variant) =>`,
     ...paints.flatMap(([name,value])=>[
       `${indent}    variant === ${json(name)} ? <>`,
@@ -55,7 +61,7 @@ ${indent}    </>}
 ${indent}  </RpRepeater>`]:[];
   const childJsx=(w.children??[]).map((c,i)=>widgetJsx(c,level+1,ref?`(${ref}.children ?? [])[${i}]`:undefined));
   const descendants=w.table?w.table.rowHeights.map((_,i)=>`${indent}  <div role="row" style={{display:'contents'}}>\n${childJsx.slice(i*w.table!.columnWidths.length,(i+1)*w.table!.columnWidths.length).join('\n')}\n${indent}  </div>`):childJsx;
-  const children=[...content,...repeated,...descendants,...(w.states??[]).map((s,i)=>`${indent}  <RpState ownerId={${id}} id={${ref?`(${ref}.states ?? [])[${i}].id`:json(s.id)}} initial={${i===0}} style={${json(reactStyle(s.css??{}))}}>
+  const children=[...content,...repeated,...descendants,...(w.states??[]).map((s,i)=>`${indent}  <RpState ownerId={${id}} id={${ref?`(${ref}.states ?? [])[${i}].id`:json(s.id)}} name={${json(s.name)}} initial={${i===0}} style={${json(reactStyle(s.css??{}))}}>
 ${s.widgets.map((c,j)=>widgetJsx(c,level+2,ref?`(${ref}.states ?? [])[${i}].widgets[${j}]`:undefined)).join('\n')}
 ${indent}  </RpState>`)];
   return `${indent}<RpWidget ${props}>
@@ -64,13 +70,13 @@ ${indent}</RpWidget>`;
 }
 function flatten(widgets:Widget[]):Widget[]{return widgets.flatMap(w=>[w,...flatten(w.children??[]),...(w.states??[]).flatMap(s=>flatten(s.widgets))]);}
 export function pageDefinition(page:Page,variables:GlobalVariable[]=[]):PageDefinition {
-  return {id:page.id,name:page.name,alignment:page.alignment,contentLeft:page.contentLeft,variables,width:page.width,height:page.height,background:page.background,behaviors:page.behaviors,repeaters:Object.fromEntries(flatten(page.widgets).filter(w=>w.repeater).map(w=>[w.id,w.repeater!])),widgets:describeWidgets(materializePage(page).widgets).map(({appearance,...state})=>state)};
+  return {id:page.id,adaptive:page.adaptive,name:page.name,alignment:page.alignment,contentLeft:page.contentLeft,variables,width:page.width,height:page.height,background:page.background,behaviors:page.behaviors,repeaters:Object.fromEntries(flatten(page.widgets).filter(w=>w.repeater).map(w=>[w.id,w.repeater!])),widgets:describeWidgets(materializePage(page).widgets).map(({appearance,...state})=>state)};
 }
 /** Emits concrete, editable JSX elements; no innerHTML, iframe or serialized HTML string. */
 export function pageToJsx(page:Page,componentName='Prototype',variables:GlobalVariable[]=[]):string {
   page={...page,widgets:materializeTables(page.widgets)};
   if(!/^[A-Z][A-Za-z0-9_]*$/.test(componentName))throw new Error('Invalid component name');
-  return `import { PrototypePage, RpWidget, RpState, RpControl, RpText, RpRepeater, RpContent, RpAppearance, widgetCss, widgetDisabledCss, widgetSelectedCss } from './runtime';\n\nconst definition = ${JSON.stringify(pageDefinition(page,variables),null,2)};\n\nexport default function ${componentName}() {\n  return (\n    <PrototypePage definition={definition}>\n${page.widgets.map(w=>widgetJsx(w,3)).join('\n')}\n    </PrototypePage>\n  );\n}\n`;
+  return `import { PrototypePage, RpWidget, RpState, RpControl, RpText, RpLink, RpImage, RpImageFrame, RpRepeater, RpContent, RpAppearance, widgetCss, widgetDisabledCss, widgetSelectedCss } from './runtime';\n\nconst definition = ${JSON.stringify(pageDefinition(page,variables),null,2)};\n\nexport default function ${componentName}() {\n  return (\n    <PrototypePage definition={definition}>\n${page.widgets.map(w=>widgetJsx(w,3)).join('\n')}\n    </PrototypePage>\n  );\n}\n`;
 }
 /** Both .jsx and .tsx exports are compiled from the same semantic project. */
 export async function writeReactProject(project:Project,assets:Map<string,Buffer>,output:string):Promise<void> {
@@ -82,7 +88,7 @@ export async function writeReactProject(project:Project,assets:Map<string,Buffer
   }
   const src=fileURLToPath(new URL('.',import.meta.url));
   copyFileSync(join(src,'react-runtime.tsx'),join(source,'runtime.tsx'));copyFileSync(join(src,'model.ts'),join(source,'model.ts'));
-  for(const file of ['repeater-actions.ts','panel.ts','transition.ts','motion.ts','navigation.ts','controls.ts','table.ts','repeater-model.ts','react-props.ts','render-tree.ts','widget-state.ts','expression.ts','behavior-runtime.ts','widget-dom.ts','selection.ts','variables.ts','page-layout.ts'])copyFileSync(join(src,file),join(source,file));
+  for(const file of ['popups.ts','input-events.ts','adaptive.ts','compression.ts','images.ts','groups.ts','expression-methods.ts','tree.ts','repeater-actions.ts','panel.ts','transition.ts','motion.ts','navigation.ts','controls.ts','table.ts','repeater-model.ts','react-props.ts','render-tree.ts','widget-state.ts','expression.ts','behavior-runtime.ts','widget-dom.ts','selection.ts','variables.ts','page-layout.ts'])copyFileSync(join(src,file),join(source,file));
   const entry=project.pages.map((_,i)=>`import Page${i+1} from './Page${i+1}.jsx';`).join('\n')+`\nimport {createRoot} from 'react-dom/client';\nconst pages={${project.pages.map((p,i)=>`${json(p.file)}:Page${i+1}`).join(',')}};\nconst Page=pages[decodeURIComponent(location.pathname.split('/').pop())]??Page1;\ncreateRoot(document.getElementById('root')).render(<Page/>);\n`;
   writeFileSync(join(source,'main.jsx'),entry);
   const req=createRequire(import.meta.url);

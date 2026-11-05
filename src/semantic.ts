@@ -1,3 +1,5 @@
+import {isImageUrl} from './images.ts';
+import {formulaMethods} from './expression-methods.ts';
 import type { Project } from './model.ts';
 import {inputTypes} from './controls.ts';
 import {isNavigationUrl} from './navigation.ts';
@@ -18,11 +20,13 @@ export function parseSemanticProject(json:string):Project {
   const uiExpression=(v:unknown,path:string,depth=0):void=>{
     if(depth>64)fail(path,'expression depth <= 64');
     const e=object(v,path),child=(x:unknown,key:string)=>uiExpression(x,path+'.'+key,depth+1);
+    if(e.kind==='now'||e.kind==='row-index')return;
+    if(e.kind==='event'){string(e.property,path+'.property');return;}
     if(e.kind==='literal'){
       if(!['string','number','boolean'].includes(typeof e.value))fail(path+'.value','scalar');
       if(typeof e.value==='number')number(e.value,path+'.value');
     }else if(e.kind==='widget'){
-      string(e.target,path+'.target');if(!['text','selected','x','y','width','height','rotation','visible','disabled','itemCount','visibleItemCount','dataCount','pageCount','pageIndex'].includes(string(e.property,path+'.property')))fail(path+'.property','text or selected');
+      string(e.target,path+'.target');if(!['left','right','top','bottom','state','text','selected','x','y','width','height','rotation','visible','disabled','itemCount','visibleItemCount','dataCount','pageCount','pageIndex'].includes(string(e.property,path+'.property')))fail(path+'.property','text or selected');
     }else if(e.kind==='variable')string(e.name,path+'.name');
     else if(e.kind==='length')child(e.value,'value');
     else if(e.kind==='column')number(e.columnId,path+'.columnId');
@@ -33,16 +37,16 @@ export function parseSemanticProject(json:string):Project {
     }else if(e.kind==='unary'){
       if(!['+','-','!'].includes(string(e.operator,path+'.operator')))fail(path+'.operator','supported unary operator');child(e.operand,'operand');
     }else if(e.kind==='call'){
-      if(!['slice','toFixed'].includes(string(e.method,path+'.method')))fail(path+'.method','slice or toFixed');
+      if(!Object.hasOwn(formulaMethods,string(e.method,path+'.method')))fail(path+'.method','supported formula method');
       child(e.receiver,'receiver');const args=array(e.args,path+'.args');
-      if(args.length>(e.method==='slice'?2:1))fail(path+'.args','valid method arity');args.forEach((x,i)=>child(x,'args.'+i));
+      if(args.length>formulaMethods[e.method as keyof typeof formulaMethods])fail(path+'.args','valid method arity');args.forEach((x,i)=>child(x,'args.'+i));
     }else fail(path+'.kind','supported UI expression');
   };
   const actions=(v:unknown,path:string,depth=0):void=>{
     if(depth>64)fail(path,'action nesting <= 64');
     array(v,path).forEach((value,i)=>{
       const p=path+'.'+i,a=object(value,p);
-      if(!['link','back','refresh','show','hide','toggle','state','enable','wait','move','resize','rotate','repeater-data','repeater-sort','repeater-page','focus','fire-event','branch','set-text','set-selected','set-variable'].includes(string(a.kind,p+'.kind')))fail(p+'.kind','supported action kind');
+      if(!['link','back','refresh','show','hide','toggle','state','enable','wait','move','resize','rotate','set-image','tree-toggle','adaptive-view','repeater-data','repeater-sort','repeater-page','focus','fire-event','branch','set-text','set-selected','set-variable'].includes(string(a.kind,p+'.kind')))fail(p+'.kind','supported action kind');
       if(a.target!==undefined)string(a.target,p+'.target');
       if(a.value!==undefined&&!['string','number','boolean'].includes(typeof a.value))fail(p+'.value','scalar action value');
       if(typeof a.value==='number')number(a.value,p+'.value');
@@ -51,10 +55,14 @@ export function parseSemanticProject(json:string):Project {
       if(a.includeVariables!==undefined)boolean(a.includeVariables,p+'.includeVariables');
       if(a.navigation!==undefined&&!['current','new','popup','parent','frame','parent-frame'].includes(string(a.navigation,p+'.navigation')))fail(p+'.navigation','navigation mode');
       if(a.windowFeatures!==undefined)string(a.windowFeatures,p+'.windowFeatures');
+      if(a.imageState!==undefined&&!['normal','selected','disabled','hover','pressed'].includes(string(a.imageState,p+'.imageState')))fail(p+'.imageState','image state');
+      if(a.kind==='set-image'&&a.value!==undefined&&!isImageUrl(string(a.value,p+'.value')))fail(p+'.value','image URL');
       if(a.loop!==undefined)boolean(a.loop,p+'.loop');
       if(a.transition!==undefined){const t=object(a.transition,p+'.transition');for(const key of ['show','hide','showDuration','hideDuration'])if(number(t[key],p+'.transition.'+key)<0)fail(p+'.transition.'+key,'nonnegative number');if(t.bringToFront!==undefined)boolean(t.bringToFront,p+'.transition.bringToFront');}
-      if(a.motion!==undefined){const m=object(a.motion,p+'.motion');for(const key of motionAxes)if(m[key]!==undefined)uiExpression(m[key],p+'.motion.'+key);for(const key of ['relative','clockwise'])if(m[key]!==undefined)boolean(m[key],p+'.motion.'+key);if(m.anchor!==undefined)string(m.anchor,p+'.motion.anchor');for(const key of ['duration','easing'])if(m[key]!==undefined&&number(m[key],p+'.motion.'+key)<0)fail(p+'.motion.'+key,'nonnegative number');}
-      if(a.kind==='link'&&a.expression!==undefined)uiExpression(a.expression,p+'.expression');
+      if(a.popup!==undefined){const q=object(a.popup,p+'.popup');if(!['flyout','lightbox'].includes(string(q.mode,p+'.popup.mode')))fail(p+'.popup.mode','popup mode');for(const key of ['source','background'])if(q[key]!==undefined)string(q[key],p+'.popup.'+key);}
+      if(a.compression!==undefined){const c=object(a.compression,p+'.compression');boolean(c.vertical,p+'.compression.vertical');for(const key of ['easing','duration'])if(number(c[key],p+'.compression.'+key)<0)fail(p+'.compression.'+key,'nonnegative number');}
+      if(a.motion!==undefined){const m=object(a.motion,p+'.motion');if(m.bounds!==undefined)for(const [key,e]of Object.entries(object(m.bounds,p+'.motion.bounds'))){if(!['left','right','top','bottom'].includes(key))fail(p+'.motion.bounds','boundary direction');uiExpression(e,p+'.motion.bounds.'+key);}for(const key of motionAxes)if(m[key]!==undefined)uiExpression(m[key],p+'.motion.'+key);for(const key of ['relative','clockwise'])if(m[key]!==undefined)boolean(m[key],p+'.motion.'+key);if(m.anchor!==undefined)string(m.anchor,p+'.motion.anchor');for(const key of ['duration','easing'])if(m[key]!==undefined&&number(m[key],p+'.motion.'+key)<0)fail(p+'.motion.'+key,'nonnegative number');}
+      if((a.kind==='link'||a.kind==='set-image'||a.kind==='repeater-page')&&a.expression!==undefined)uiExpression(a.expression,p+'.expression');
       if(a.kind==='branch')array(a.branches,p+'.branches').forEach((value,j)=>{const b=object(value,p+'.branch');if(b.condition!==undefined)uiExpression(b.condition,p+'.condition');actions(b.actions,p+'.branches.'+j+'.actions',depth+1);});
       if(a.kind==='repeater-data'){
         string(a.target,p+'.target');const r=object(a.repeaterAction,p+'.repeaterAction');
@@ -72,7 +80,7 @@ export function parseSemanticProject(json:string):Project {
   const behaviors=(v:unknown,path:string):void=>{array(v,path).forEach((value,i)=>{
     const b=object(value,path+'.'+i);string(b.event,path+'.event');actions(b.actions,path+'.'+i+'.actions');
   });};
-  const text=(v:unknown,path:string):void=>{const t=object(v,path);if(t.kind!=='text')fail(path+'.kind','text');css(t.css,path+'.css');array(t.paragraphs,path+'.paragraphs').forEach(value=>{const p=object(value,path+'.paragraph');css(p.css,path+'.css');array(p.runs,path+'.runs').forEach(value=>{const r=object(value,path+'.run');string(r.text,path+'.text');css(r.css,path+'.css');});});};
+  const text=(v:unknown,path:string):void=>{const t=object(v,path);if(t.kind!=='text')fail(path+'.kind','text');css(t.css,path+'.css');array(t.paragraphs,path+'.paragraphs').forEach(value=>{const p=object(value,path+'.paragraph');css(p.css,path+'.css');array(p.runs,path+'.runs').forEach(value=>{const r=object(value,path+'.run');string(r.text,path+'.text');css(r.css,path+'.css');if(r.link!==undefined)behaviors(object(r.link,path+'.link').behaviors,path+'.link.behaviors');});});};
   const point=(v:unknown,path:string):void=>{const p=object(v,path);number(p.x,path+'.x');number(p.y,path+'.y');};
   const content=(v:unknown,path:string):void=>{
     const c=object(v,path);
@@ -94,6 +102,7 @@ export function parseSemanticProject(json:string):Project {
       array(c.markers,path+'.markers').forEach(value=>{const m=object(value,path+'.marker');for(const k of ['id','data','color'])string(m[k],path+'.'+k);boolean(m.filled,path+'.filled');});return;
     }
     if(c.kind==='control'){
+      if(c.indicator!==undefined)css(c.indicator,path+'.indicator');if(c.multiple!==undefined)boolean(c.multiple,path+'.multiple');if(c.selectedValues!==undefined)array(c.selectedValues,path+'.selectedValues').forEach(v=>string(v,path+'.selectedValue'));
       if(!['text','textarea','radio','checkbox','select','button'].includes(string(c.control,path+'.control')))fail(path+'.control','form control kind');
       for(const k of ['label','value','placeholder'])string(c[k],path+'.'+k);
       for(const k of ['disabled','readOnly'])boolean(c[k],path+'.'+k);
@@ -117,8 +126,9 @@ export function parseSemanticProject(json:string):Project {
       for(const k of ['type','name'])string(w[k],p+'.'+k);
       for(const k of ['x','y','width','height'])number(w[k],p+'.'+k);
       if(Number(w.width)<0||Number(w.height)<0)fail(p,'nonnegative size');
-      if(!['group','shape','image','hotspot','panel','repeater','table','menu','frame','control','unsupported'].includes(string(w.kind,p+'.kind')))fail(p+'.kind','semantic widget kind');
+      if(!['group','shape','image','hotspot','panel','repeater','table','menu','frame','tree','control','unsupported'].includes(string(w.kind,p+'.kind')))fail(p+'.kind','semantic widget kind');
       css(w.css,p+'.css');source(w.source,p+'.source');behaviors(w.behaviors,p+'.behaviors');array(w.content,p+'.content').forEach((c,j)=>content(c,p+'.content.'+j));
+      if(w.adaptive!==undefined)for(const [id,value]of Object.entries(object(w.adaptive,p+'.adaptive'))){const a=object(value,p+'.adaptive.'+id);for(const key of ['x','y','width','height'])number(a[key],p+'.adaptive.'+key);css(a.css,p+'.adaptive.css');array(a.content,p+'.adaptive.content').forEach((v,i)=>content(v,p+'.adaptive.content.'+i));if(a.variants!==undefined)for(const [key,v]of Object.entries(object(a.variants,p+'.adaptive.variants'))){if(!['selected','disabled'].includes(key))fail(p+'.adaptive.variants','appearance state');const variant=object(v,p+'.adaptive.variant');css(variant.css,p+'.adaptive.variant.css');if(variant.content!==undefined)array(variant.content,p+'.adaptive.variant.content').forEach((v,i)=>content(v,p+'.adaptive.variant.content.'+i));}}
       if(w.disabled!==undefined)boolean(w.disabled,p+'.disabled');
       if(w.selected!==undefined)boolean(w.selected,p+'.selected');
       if(w.selectionGroup!==undefined)string(w.selectionGroup,p+'.selectionGroup');
@@ -130,6 +140,7 @@ export function parseSemanticProject(json:string):Project {
           if(appearance.content!==undefined)array(appearance.content,p+'.variants.'+name+'.content').forEach((c,j)=>content(c,p+'.variants.'+name+'.content.'+j));
         }
       }
+      if(w.tree!==undefined){const t=object(w.tree,p+'.tree');boolean(t.root,p+'.tree.root');boolean(t.expanded,p+'.tree.expanded');if(number(t.rowHeight,p+'.rowHeight')<0)fail(p+'.rowHeight','nonnegative height');array(t.nodes,p+'.tree.nodes').forEach(id=>string(id,p+'.node'));for(const key of ['toggleId','labelId'])if(t[key]!==undefined)string(t[key],p+'.tree.'+key);}
       if(w.panel!==undefined){const l=object(w.panel,p+'.panel');for(const key of ['percentWidth','fitToContent'])if(l[key]!==undefined)boolean(l[key],p+'.panel.'+key);if(l.fixed!==undefined){const f=object(l.fixed,p+'.panel.fixed');if(!['left','center','right'].includes(string(f.horizontal,p+'.horizontal'))||!['top','center','bottom'].includes(string(f.vertical,p+'.vertical')))fail(p+'.panel.fixed','pin alignments');number(f.marginX,p+'.marginX');number(f.marginY,p+'.marginY');boolean(f.keepInFront,p+'.keepInFront');}}
       if(w.children!==undefined)widgets(w.children,p+'.children',ids,depth+1);
       if(w.kind==='table'||w.table!==undefined){
@@ -143,7 +154,7 @@ export function parseSemanticProject(json:string):Project {
       if(w.states!==undefined)array(w.states,p+'.states').forEach(value=>{const s=object(value,p+'.state');string(s.id,p+'.id');string(s.name,p+'.name');if(s.css!==undefined)css(s.css,p+'.css');widgets(s.widgets,p+'.widgets',ids,depth+1);});
       if(w.repeater!==undefined){
         if(w.children!==undefined)fail(p+'.children','repeater templates and data only, no stale expanded children');
-        const r=object(w.repeater,p+'.repeater');source(r.templateSource,p+'.templateSource');
+        const r=object(w.repeater,p+'.repeater');if(r.itemLoad!==undefined)behaviors(r.itemLoad,p+'.repeater.itemLoad');source(r.templateSource,p+'.templateSource');
         widgets(r.template,p+'.template',new Set(),depth+1);boolean(r.isolateRadioGroups,p+'.isolateRadioGroups');
         if(r.isolateSelectionGroups!==undefined)boolean(r.isolateSelectionGroups,p+'.isolateSelectionGroups');
         array(r.columns,p+'.columns').forEach(value=>{const c=object(value,p+'.column');number(c.id,p+'.id');string(c.name,p+'.name');});
@@ -175,7 +186,7 @@ export function parseSemanticProject(json:string):Project {
     });
   }
   const files=new Set<string>();
-  array(root.pages,'$.pages').forEach((value,i)=>{const path='$.pages.'+i,p=object(value,path);string(p.id,path+'.id');string(p.name,path+'.name');string(p.background,path+'.background');if(p.alignment!==undefined&&!['left','center'].includes(String(p.alignment)))fail(path+'.alignment','left or center');if(p.contentLeft!==undefined)number(p.contentLeft,path+'.contentLeft');const file=string(p.file,path+'.file');if(!/^[\w-]+\.html$/.test(file)||files.has(file))fail(path+'.file','unique plain HTML filename');files.add(file);for(const k of ['width','height'])if(number(p[k],path+'.'+k)<0)fail(path+'.'+k,'nonnegative dimension');behaviors(p.behaviors,path+'.behaviors');widgets(p.widgets,path+'.widgets',new Set());});
+  array(root.pages,'$.pages').forEach((value,i)=>{const path='$.pages.'+i,p=object(value,path);string(p.id,path+'.id');string(p.name,path+'.name');string(p.background,path+'.background');if(p.alignment!==undefined&&!['left','center'].includes(String(p.alignment)))fail(path+'.alignment','left or center');if(p.contentLeft!==undefined)number(p.contentLeft,path+'.contentLeft');if(p.adaptive!==undefined){const a=object(p.adaptive,path+'.adaptive');string(a.defaultId,path+'.adaptive.defaultId');const ids=new Set<string>();for(const item of array(a.views,path+'.adaptive.views')){const v=object(item,path+'.adaptive.view'),id=string(v.id,path+'.adaptive.id');if(ids.has(id))fail(path+'.adaptive.id','unique view ID');ids.add(id);string(v.name,path+'.adaptive.name');if(v.parent!==undefined)string(v.parent,path+'.adaptive.parent');for(const key of ['width','height'])if(number(v[key],path+'.adaptive.'+key)<0)fail(path+'.adaptive.size','nonnegative size');}if(!ids.has(String(a.defaultId)))fail(path+'.adaptive.defaultId','existing view');const layouts=object(a.layouts,path+'.adaptive.layouts');for(const id of ids){const l=object(layouts[id],path+'.adaptive.layout');for(const key of ['width','height'])number(l[key],path+'.adaptive.layout.'+key);string(l.background,path+'.adaptive.layout.background');if(l.contentLeft!==undefined)number(l.contentLeft,path+'.adaptive.layout.contentLeft');if(l.alignment!==undefined&&!['left','center'].includes(String(l.alignment)))fail(path+'.adaptive.layout.alignment','left or center');}}const file=string(p.file,path+'.file');if(!/^[\w-]+\.html$/.test(file)||files.has(file))fail(path+'.file','unique plain HTML filename');files.add(file);for(const k of ['width','height'])if(number(p[k],path+'.'+k)<0)fail(path+'.'+k,'nonnegative dimension');behaviors(p.behaviors,path+'.behaviors');widgets(p.widgets,path+'.widgets',new Set());});
   if(files.size===0)fail('$.pages','at least one page');
   array(root.issues,'$.issues').forEach(value=>{const i=object(value,'$.issue');string(i.feature,'$.feature');string(i.detail,'$.detail');});
   for(const value of Object.values(object(root.stats,'$.stats')))number(value,'$.stats');

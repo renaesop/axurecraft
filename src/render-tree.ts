@@ -4,7 +4,7 @@ import {layoutTable,tableRows} from './table.ts';
 /** Target-independent element tree, derived from semantic content only at code generation. */
 export interface ElementNode { tag:string; attrs:Record<string,string|number|boolean|undefined>; css?:Css; children:(ElementNode|string)[] }
 export const element=(tag:string,attrs:ElementNode['attrs']={},children:ElementNode['children']=[],css?:Css):ElementNode=>({tag,attrs,children,css});
-const textElement=(text:RichText):ElementNode=>element('div',{class:'rp-text'},text.paragraphs.map(p=>element('p',{},p.runs.length?p.runs.map(run=>element('span',{},[run.text],run.css)):[element('br')],p.css)),text.css);
+const textElement=(text:RichText):ElementNode=>element('div',{class:'rp-text'},text.paragraphs.map(p=>element('p',{},p.runs.length?p.runs.map(run=>element('span',run.link?{class:'rp-inline-link',role:'link',tabindex:0,'data-rp-link':JSON.stringify(run.link.behaviors)}:{},[run.text],run.link?{...run.css,'pointer-events':'auto',cursor:'pointer'}:run.css)):[element('br')],p.css)),text.css);
 /** Axure image masks use cubic corners with a .555 tangent, not CSS circular arcs. */
 export function imageFramePath(width:number,height:number,radius:number,borderWidth:number):string {
   const inset=Math.min(borderWidth/2,width/2,height/2),l=inset,t=inset,r=width-inset,b=height-inset;
@@ -16,13 +16,12 @@ export function contentElements(content:WidgetContent):ElementNode[]{
     case 'frame':return [element('iframe',{src:content.src,name:content.name,title:content.title,scrolling:content.scrolling},[],{width:'100%',height:'100%',border:content.border?'1px solid #797979':'0',display:'block'})];
     case 'text':return [textElement(content)];
     case 'image':{
-      if(!content.asset)return [];
       const f=content.frame;
-      if(!f)return [element('img',{class:'rp-image',src:content.asset,alt:content.alt})];
+      if(!f)return [element('img',{class:'rp-image',src:content.asset??undefined,alt:content.alt,hidden:!content.asset})];
       const d=imageFramePath(f.width,f.height,f.radius,f.borderWidth);
-      return [element('svg',{class:'rp-framed-image',width:f.width,height:f.height,viewBox:`0 0 ${f.width} ${f.height}`,role:'img','aria-label':content.alt},[
+      return [element('svg',{class:'rp-framed-image',hidden:!content.asset,width:f.width,height:f.height,viewBox:`0 0 ${f.width} ${f.height}`,role:'img','aria-label':content.alt},[
         element('defs',{},[element('mask',{id:f.id,maskUnits:'userSpaceOnUse',x:0,y:0,width:f.width,height:f.height},[element('path',{d,fill:'white','fill-rule':'evenodd'})])]),
-        element('image',{href:content.asset,width:f.width,height:f.height,preserveAspectRatio:'none',mask:`url(#${f.id})`}),
+        element('image',{href:content.asset??undefined,width:f.width,height:f.height,preserveAspectRatio:'none',mask:`url(#${f.id})`}),
         element('path',{d,fill:'none',stroke:f.borderColor,'stroke-width':f.borderWidth}),
       ])];
     }
@@ -35,9 +34,9 @@ export function contentElements(content:WidgetContent):ElementNode[]{
       const c=content;
       const attrs={'aria-label':c.label,disabled:c.disabled,readonly:c.readOnly,maxlength:c.maxLength,'data-hide-hint-on-focus':c.hideHintOnFocus};
       if(c.control==='textarea')return [element('textarea',{...attrs,placeholder:c.placeholder},[c.value])];
-      if(c.control==='radio'||c.control==='checkbox')return [element('label',{class:'rp-selection'},[element('input',{type:c.control,name:c.group,checked:c.checked,disabled:c.disabled},[],{width:'13px',height:'13px',margin:'0 3px 0 0','flex-shrink':'0'}),...(c.richLabel?[textElement(c.richLabel)]:[c.value])])];
+      if(c.control==='radio'||c.control==='checkbox')return [element('label',{class:'rp-selection'},[element('input',{type:c.control,name:c.group,checked:c.checked,disabled:c.disabled,'data-custom-indicator':c.indicator?true:undefined},[],{...c.indicator,...(c.indicator?{appearance:'none',position:'relative'}:{}),width:'13px',height:'13px',margin:'0 3px 0 0','flex-shrink':'0'}),...(c.richLabel?[textElement(c.richLabel)]:[c.value])])];
       if(c.control==='button')return [element('button',{disabled:c.disabled},[c.value],{width:'100%',height:'100%',font:'inherit'})];
-      if(c.control==='select')return [element('select',{...attrs,value:c.value,size:c.listBox?Math.max(2,c.options?.length??0):undefined},(c.options??[]).map((o,i)=>element('option',{value:o.value,selected:i===(c.options??[]).findIndex(o=>o.value===c.value)},[o.label])))];
+      if(c.control==='select')return [element('select',{...attrs,multiple:c.multiple,value:c.multiple?undefined:c.value,size:c.listBox?Math.max(2,c.options?.length??0):undefined},(c.options??[]).map((o,i)=>element('option',{value:o.value,selected:c.multiple?c.selectedValues?.includes(o.value):i===(c.options??[]).findIndex(o=>o.value===c.value)},[o.label])))];
       return [element('input',{...attrs,type:c.inputType??'text',value:c.inputType==='file'?undefined:c.value,placeholder:c.placeholder})];
     }
   }
@@ -49,8 +48,8 @@ export function widgetStyle(w:Widget):Css {
 }
 export function widgetElement(w:Widget):ElementNode {
   w=layoutTable(w);
-  const states=w.states?.map((s,i)=>element('div',{class:'rp-state','data-state':s.id,hidden:i>0},s.widgets.map(widgetElement),s.css))??[];
+  const states=w.states?.map((s,i)=>element('div',{class:'rp-state','data-state':s.id,'data-state-name':s.name,hidden:i>0},s.widgets.map(widgetElement),s.css))??[];
   const content=w.content.flatMap(contentElements);
   const children=w.table?tableRows(w).map(row=>element('div',{role:'row'},row.map(widgetElement),{display:'contents'})):(w.children??[]).map(widgetElement);
-  return element('div',{class:'rp-widget',id:w.id,'data-kind':w.type,'data-name':w.name,role:w.table?'table':w.type==='TableCell'?'cell':undefined,'aria-label':w.table?w.name||'Table':undefined,'aria-selected':w.selected===undefined?undefined:String(w.selected)},[...(Object.values(w.variants??{}).some(v=>v.content)?[element('div',{class:'rp-content'},content,{display:'contents'})]:content),...children,...states],widgetStyle(w));
+  return element('div',{class:'rp-widget',id:w.id,'data-kind':w.type,'data-name':w.name,role:w.tree?w.tree.root?'tree':'treeitem':w.table?'table':w.type==='TableCell'?'cell':undefined,'aria-expanded':w.tree?.nodes.length&&!w.tree.root?String(w.tree.expanded):undefined,'aria-label':w.table?w.name||'Table':undefined,'aria-selected':w.selected===undefined?undefined:String(w.selected)},[...(w.adaptive||Object.values(w.variants??{}).some(v=>v.content)?[element('div',{class:'rp-content'},content,{display:'contents'})]:content),...children,...states],widgetStyle(w));
 }

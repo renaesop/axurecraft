@@ -1,6 +1,6 @@
 import {cpSync,mkdtempSync,rmSync,writeFileSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {basename,join,resolve} from 'node:path';
+import {basename,dirname,join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 
 // Exercise the actual consumer workflow without resolving the repository's deps.
@@ -16,6 +16,9 @@ try{
   run(['install','--ignore-scripts','--no-audit','--no-fund']);
   run(['run','build']);
   run(['run','typecheck']);
+  cpSync(join(dirname(source),'source'),join(isolated,'vanilla'),{recursive:true});
+  writeFileSync(join(isolated,'tsconfig.vanilla.json'),JSON.stringify({compilerOptions:{target:'ES2022',module:'ESNext',moduleResolution:'Bundler',strict:true,noEmit:true,allowImportingTsExtensions:true,skipLibCheck:true,lib:['ES2022','DOM','DOM.Iterable']},include:['vanilla/**/*.ts']}));
+  run(['exec','--','tsc','--project','tsconfig.vanilla.json']);
   mkdirSync('output',{recursive:true});
-  writeFileSync('output/standalone-validation.json',JSON.stringify({source:process.argv[2]??'output/demo/react',independentInstall:true,build:true,typecheck:true,node:process.version},null,2)+'\n');
+  writeFileSync('output/standalone-validation.json',JSON.stringify({source:process.argv[2]??'output/demo/react',independentInstall:true,build:true,typecheck:true,vanillaSourceTypecheck:true,node:process.version},null,2)+'\n');
 }finally{rmSync(isolated,{recursive:true,force:true});}

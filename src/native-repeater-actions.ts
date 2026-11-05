@@ -1,3 +1,4 @@
+import {datasetColumns,nativeColumnId,type NativeContext} from './native-reference.ts';
 import {field,items,object,prop,number,str,bool,type Graph,type Value} from './graph.ts';
 import {nativeExpressions} from './native-expression.ts';
 import type {Action,RepeaterAction,RepeaterCellValue,GlobalVariable} from './model.ts';
@@ -10,14 +11,14 @@ const specs:Record<string,[string,string,RepeaterAction['operation']]>={
  InteractionUpdateEditItemsInDataSetAction:['RepeaterPaths','UpdateItemInfos','update'],
  InteractionModifyDataSetEditItemsAction:['RepeaterPaths','ModifyItemInfos','mark'],
 };
-export function readRepeaterAction(g:Graph,owner:Value,action:Value,variables:GlobalVariable[],asset?:(v:Value|undefined)=>string|undefined):Action[]|undefined {
+export function readRepeaterAction(g:Graph,owner:Value,action:Value,variables:GlobalVariable[],asset:((v:Value|undefined)=>string|undefined)|undefined,context:NativeContext={}):Action[]|undefined {
  const spec=specs[action.className?.split(/[:.]/).at(-1)??''];if(!spec)return;
  const paths=items(field(action.body,spec[0])),infos=items(field(action.body,spec[1]));
  if(paths.length!==infos.length||!paths.length)throw new Error('Repeater action parameter counts differ');
  return paths.map((path,index)=>{
-  const target=nativeExpressions(g,owner,variables).target(object(g,path)),repeater=[...g.objects.values()].find(w=>`w-${g.guids[w.id!-1]}`===target),data=prop(g,repeater,'Data');
+  const target=nativeExpressions(g,owner,variables,undefined,context).target(object(g,path)),reference=context.references?.get(target.slice(2)),targetGraph=reference?.graph??g,repeater=reference?.widget??[...g.objects.values()].find(w=>`w-${g.guids[w.id!-1]}`===target),data=prop(targetGraph,repeater,'Data');
   if(!data)throw new Error('Repeater action target dataset is missing');
-  const expressions=nativeExpressions(g,owner,variables,data),info=object(g,infos[index]);if(!info)throw new Error('Repeater parameters missing');
+  const columns=datasetColumns(targetGraph,data),expressions=nativeExpressions(g,owner,variables,undefined,{...context,columns}),info=object(g,infos[index]);if(!info)throw new Error('Repeater parameters missing');
   const r:RepeaterAction={operation:spec[2]};
   const compile=(ref:Value|undefined)=>expressions.compile(object(g,ref),target);
   const cell=(type:number,value:Value|undefined,image?:Value):RepeaterCellValue=>{
@@ -37,12 +38,12 @@ export function readRepeaterAction(g:Graph,owner:Value,action:Value,variables:Gl
    if(r.operation==='update'){
     const ids=items(field(info.body,'actual')),values=items(field(info.body,'update-data'));
     if(ids.length!==values.length)throw new Error('Updated columns and values differ');
-    r.values=Object.fromEntries(ids.map((id,i)=>[String(number(id)),cell(number(field(values[i],'Type')),field(values[i],'Literal')??field(values[i],'Text'),field(values[i],'Image'))]));
+    r.values=Object.fromEntries(ids.map((id,i)=>[String(nativeColumnId(g,number(id),columns)),cell(number(field(values[i],'Type')),field(values[i],'Literal')??field(values[i],'Text'),field(values[i],'Image'))]));
    }
   }else if(r.operation==='add'){
    const added=prop(g,info,'add-data-set'),actual=items(field(info.body,'actual')),aliases=items(field(info.body,'add'));
    if(!added||actual.length!==aliases.length)throw new Error('Added dataset column mapping is invalid');
-   const mapping=new Map(aliases.map((id,i)=>[number(id),number(actual[i])]));
+   const mapping=new Map(aliases.map((id,i)=>[number(id),nativeColumnId(g,number(actual[i]),columns)]));
    r.rows=items(field(added.body,'rows')).map(ref=>{
     const row=object(g,ref);return Object.fromEntries(items(field(row?.body,'elements')).map(ref=>{
      const e=object(g,ref),id=mapping.get(number(field(e?.body,'column-id')));if(id===undefined)throw new Error('Added column has no destination');

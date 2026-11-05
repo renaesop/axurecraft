@@ -1,0 +1,5 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';
+import {adaptiveChain,chooseAdaptiveView,type AdaptiveView} from '../src/adaptive.ts';
+const views:AdaptiveView[]=[{id:'base',name:'',width:0,height:0},{id:'large',name:'Large',width:1200,height:0,parent:'base'},{id:'phone',name:'Phone',width:375,height:667,parent:'large'},{id:'tall',name:'Tall',width:375,height:900,parent:'phone'}];
+test('adaptive selection matches native width and height tie rules',()=>{const d={defaultId:'base',views};assert.equal(chooseAdaptiveView(d,300,1000),'base');assert.equal(chooseAdaptiveView(d,600,800),'phone');assert.equal(chooseAdaptiveView(d,600,1000),'tall');assert.equal(chooseAdaptiveView(d,600,500),'phone');assert.equal(chooseAdaptiveView(d,1400,800),'large');});
+test('adaptive inheritance follows authored parents rather than breakpoint order',()=>{assert.deepEqual(adaptiveChain(views,'phone'),['base','large','phone']);assert.throws(()=>adaptiveChain([{...views[0],parent:'large'},{...views[1],parent:'base'}],'large'),/Cyclic/);});

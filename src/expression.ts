@@ -1,6 +1,10 @@
+import {callFormulaMethod} from './expression-methods.ts';
 import type { UIExpression, Scalar, WidgetProperty } from './model.ts';
 
 export interface ExpressionContext {
+  now?():number;
+  readRowIndex?():number;
+  readEvent?(property:string):Scalar|undefined;
   readWidget(id: string, property: WidgetProperty): Scalar | undefined;
   readColumn?(id:number):Scalar|undefined;
   readVariable?(name: string): string;
@@ -16,6 +20,9 @@ export function axureBoolean(value: Scalar | undefined): Scalar | undefined {
 /** Explicit expression interpreter. No eval, Function, or arbitrary property access. */
 export function evaluateExpression(expr: UIExpression, context: ExpressionContext): Scalar | undefined {
   const evaluate = (node: UIExpression): Scalar | undefined => evaluateExpression(node, context);
+  if(expr.kind==='row-index')return context.readRowIndex?.();
+  if(expr.kind==='event')return context.readEvent?.(expr.property);
+  if(expr.kind==='now')return new Date(context.now?.()??Date.now()).toString();
   if (expr.kind === 'literal') return expr.value;
   if (expr.kind === 'widget') return context.readWidget(expr.target, expr.property);
   if (expr.kind === 'variable') return context.readVariable?.(expr.name);
@@ -34,9 +41,7 @@ export function evaluateExpression(expr: UIExpression, context: ExpressionContex
   if (expr.kind === 'call') {
     const value = evaluate(expr.receiver), args = expr.args.map(evaluate);
     if (value === undefined || args.some(v => v === undefined)) return undefined;
-    if (expr.method === 'slice') return String(value).slice(Number(args[0]), args.length > 1 ? Number(args[1]) : undefined);
-    const digits = Number(args[0] ?? 0);
-    return Number.isInteger(digits) && digits >= 0 && digits <= 100 ? Number(value).toFixed(digits) : undefined;
+    return callFormulaMethod(expr.method,value,args as Scalar[],expr.receiver.kind==='now'?context.now?.()??Date.now():undefined);
   }
   const left = evaluate(expr.left);
   if (left === undefined) return expr.operator === '!=' ? true : ['+','-','*','/','%'].includes(expr.operator) ? undefined : false;
@@ -65,22 +70,23 @@ export function evaluateExpression(expr: UIExpression, context: ExpressionContex
 }
 
 /** Visit references when a canonical template becomes a row instance. */
-export function bindExpression(expr: UIExpression, target: (id: string) => string, column: (id: number) => Scalar | undefined): UIExpression {
+export function bindExpression(expr: UIExpression, target: (id: string) => string, column: (id: number) => Scalar | undefined, rowIndex?:number): UIExpression {
   switch (expr.kind) {
-    case 'length': return { ...expr, value: bindExpression(expr.value, target, column) };
+    case 'row-index':return rowIndex===undefined?expr:{kind:'literal',value:rowIndex};
+    case 'length': return { ...expr, value: bindExpression(expr.value, target, column,rowIndex) };
     case 'widget': return { ...expr, target: target(expr.target) };
     case 'column': { const value = column(expr.columnId); return value === undefined ? expr : { kind: 'literal', value }; }
-    case 'binary': return { ...expr, left: bindExpression(expr.left, target, column), right: bindExpression(expr.right, target, column) };
-    case 'unary': return { ...expr, operand: bindExpression(expr.operand, target, column) };
-    case 'call': return { ...expr, receiver: bindExpression(expr.receiver, target, column), args: expr.args.map(e => bindExpression(e, target, column)) };
-    case 'concat': return { ...expr, parts: expr.parts.map(e => bindExpression(e, target, column)) };
+    case 'binary': return { ...expr, left: bindExpression(expr.left, target, column,rowIndex), right: bindExpression(expr.right, target, column,rowIndex) };
+    case 'unary': return { ...expr, operand: bindExpression(expr.operand, target, column,rowIndex) };
+    case 'call': return { ...expr, receiver: bindExpression(expr.receiver, target, column,rowIndex), args: expr.args.map(e => bindExpression(e, target, column,rowIndex)) };
+    case 'concat': return { ...expr, parts: expr.parts.map(e => bindExpression(e, target, column,rowIndex)) };
     default: return expr;
   }
 }
 
 /** Snapshot external values when a repeater action starts; columns stay row-dependent. */
 export function snapshotExpression(expr:UIExpression,context:ExpressionContext):UIExpression {
- if(expr.kind==='widget'||expr.kind==='variable'){const value=evaluateExpression(expr,context);return value===undefined?expr:{kind:'literal',value};}
+ if(expr.kind==='event'||expr.kind==='widget'||expr.kind==='variable'||expr.kind==='now'||expr.kind==='call'&&expr.receiver.kind==='now'){const value=evaluateExpression(expr,context);return value===undefined?expr:{kind:'literal',value};}
  const visit=(e:UIExpression)=>snapshotExpression(e,context);
  if(expr.kind==='binary')return {...expr,left:visit(expr.left),right:visit(expr.right)};
  if(expr.kind==='unary')return {...expr,operand:visit(expr.operand)};

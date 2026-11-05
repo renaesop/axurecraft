@@ -33,13 +33,20 @@
     "compare:html": "node scripts/compare-html.mjs",
     "test:variables": "tsx scripts/validate-variable-browser.ts",
     "test:ci": "npm run typecheck && npm test",
-    "test:ci:browser": "npm run test:demo && npm run test:variables && npm run test:selection-groups && npm run test:tables && npm run test:navigation && npm run test:motion && npm run test:repeater-data",
+    "test:ci:browser": "npm run test:demo && npm run test:variables && npm run test:selection-groups && npm run test:tables && npm run test:navigation && npm run test:motion && npm run test:repeater-data && npm run test:tree && npm run test:inline-links && npm run test:images && npm run test:compression && npm run test:adaptive && npm run test:input-events && npm run test:popups",
     "test:standalone": "node scripts/validate-standalone.mjs",
     "test:tables": "tsx scripts/validate-tables.ts",
     "audit:controls": "tsx scripts/audit-controls.ts",
     "test:navigation": "tsx scripts/validate-navigation.ts",
     "test:motion": "tsx scripts/validate-motion.ts",
-    "test:repeater-data": "tsx scripts/validate-repeater-data.ts"
+    "test:repeater-data": "tsx scripts/validate-repeater-data.ts",
+    "test:tree": "tsx scripts/validate-tree.ts",
+    "test:inline-links": "tsx scripts/validate-inline-links.ts",
+    "test:images": "tsx scripts/validate-images.ts",
+    "test:compression": "tsx scripts/validate-compression.ts",
+    "test:adaptive": "tsx scripts/validate-adaptive.ts",
+    "test:input-events": "tsx scripts/validate-input-events.ts",
+    "test:popups": "tsx scripts/validate-popups.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

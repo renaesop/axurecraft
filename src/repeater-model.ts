@@ -1,5 +1,6 @@
 import {filteredRows,mutateRepeater} from './repeater-actions.ts';
 import {bindExpression} from './expression.ts';
+import {layoutTree} from './tree.ts';
 import {layoutTable} from './table.ts';
 import {motionAxes} from './motion.ts';
 import type {Action,DataCell,Page,RepeaterData,RepeaterSort,RepeaterState,RowExpression,Widget,WidgetProperty} from './model.ts';
@@ -60,7 +61,7 @@ export function selectRepeaterRows(data:RepeaterData,state=initialRepeaterState(
   return rows.slice((page-1)*size,page*size);
 }
 export function flattenWidgets(widgets:Widget[]):Widget[]{return widgets.flatMap(w=>[w,...flattenWidgets(w.children??[]),...(w.states??[]).flatMap(s=>flattenWidgets(s.widgets))]);}
-const contentArrays=(w:Widget)=>[w.content,...Object.values(w.variants??{}).flatMap(v=>v.content?[v.content]:[])];
+const contentArrays=(w:Widget)=>[...new Set([w.content,...Object.values(w.variants??{}).flatMap(v=>v.content?[v.content]:[]),...Object.values(w.adaptive??{}).flatMap(p=>[p.content,...Object.values(p.variants??{}).flatMap(v=>v.content?[v.content]:[])])])];
 export interface MaterializedRow {key:string;widgets:Widget[]}
 export function materializeRepeater(id:string,data:RepeaterData,state=initialRepeaterState(data)):MaterializedRow[] {
   const rowWidth=Math.max(1,...data.template.map(w=>w.x+w.width));
@@ -71,28 +72,33 @@ export function materializeRepeater(id:string,data:RepeaterData,state=initialRep
       if(c.kind==='image'&&c.frame)mapping.set(c.frame.id,prefix+c.frame.id);
       if(c.kind==='vector'){for(const d of [...c.gradients,...c.markers])mapping.set(d.id,prefix+d.id);}
     }}
+    if(widgets[0]&&data.itemLoad?.length)widgets[0].behaviors.push(...structuredClone(data.itemLoad));
     const mapped=(value:string):string=>mapping.get(value)??value;
     const paint=(value:string):string=>value.replace(/^url\(#(.+)\)$/,(_,id:string)=>`url(#${mapped(id)})`);
     for(const w of all){
       w.instance={repeaterId:id,rowId:row.id,templateId:w.id};
       w.id=mapped(w.id);
+      if(w.tree){w.tree.nodes=w.tree.nodes.map(mapped);if(w.tree.toggleId)w.tree.toggleId=mapped(w.tree.toggleId);if(w.tree.labelId)w.tree.labelId=mapped(w.tree.labelId);}
       if(w.selectionGroup && data.isolateSelectionGroups !== false) w.selectionGroup=prefix+w.selectionGroup;
       for(const s of w.states??[])s.id=mapped(s.id);
       const bindActions=(actions:Action[]):void=>{for(const a of actions){
-        if(a.target)a.target=mapped(a.target);
+        if(a.target)a.target=mapped(a.target);if(a.popup?.source)a.popup.source=mapped(a.popup.source);
         if(a.kind==='state'&&typeof a.value==='string')a.value=mapped(a.value);
-        const column=(id:number)=>{const cell=row.cells[String(id)];return cell?.kind==='text'?cell.value:undefined;};
-        if(a.expression)a.expression=bindExpression(a.expression,mapped,column);
+        const column=(id:number)=>{const cell=row.cells[String(id)];return cell?.kind==='text'?cell.value:cell?.kind==='image'?cell.asset??'':undefined;};
+        if(a.expression)a.expression=bindExpression(a.expression,mapped,column,index+1);
         if(a.repeaterAction){
           const r=a.repeaterAction;if(r.selection==='this')r.rowId=row.id;
           if(r.condition)r.condition=bindExpression(r.condition,mapped,()=>undefined);
           for(const values of [r.values,...r.rows??[]])for(const value of Object.values(values??{}))if(value.kind==='expression')value.expression=bindExpression(value.expression,mapped,()=>undefined);
         }
-        if(a.motion)for(const key of motionAxes)if(a.motion[key])a.motion[key]=bindExpression(a.motion[key]!,mapped,column);
-        for(const branch of a.branches??[]){if(branch.condition)branch.condition=bindExpression(branch.condition,mapped,column);bindActions(branch.actions);}
+        if(a.motion?.bounds)for(const [key,e]of Object.entries(a.motion.bounds))a.motion.bounds[key as 'left']=bindExpression(e,mapped,column,index+1);
+        if(a.motion)for(const key of motionAxes)if(a.motion[key])a.motion[key]=bindExpression(a.motion[key]!,mapped,column,index+1);
+        for(const branch of a.branches??[]){if(branch.condition)branch.condition=bindExpression(branch.condition,mapped,column,index+1);bindActions(branch.actions);}
       }};
       for(const b of w.behaviors)bindActions(b.actions);
       for(const c of contentArrays(w).flat()){
+        const rich=c.kind==='text'?c:c.kind==='control'?c.richLabel:undefined;
+        for(const p of rich?.paragraphs??[])for(const r of p.runs)for(const b of r.link?.behaviors??[])bindActions(b.actions);
         if(c.kind==='frame')c.name=mapped(c.name);
         if(c.kind==='image'&&c.frame)c.frame.id=mapped(c.frame.id);
         if(c.kind==='vector'){
@@ -120,14 +126,14 @@ export function materializeRepeater(id:string,data:RepeaterData,state=initialRep
     const primary=data.layout.wrap?index%data.layout.wrap:index,secondary=data.layout.wrap?Math.floor(index/data.layout.wrap):0;
     const x=data.layout.paddingLeft+(data.layout.direction==='horizontal'?primary:secondary)*(rowWidth+data.layout.horizontalSpacing);
     const y=data.layout.paddingTop+(data.layout.direction==='vertical'?primary:secondary)*(rowHeight+data.layout.verticalSpacing);
-    for(const w of widgets){w.x+=x;w.y+=y;}
+    for(const w of widgets){w.x+=x;w.y+=y;for(const [view,p]of Object.entries(w.adaptive??{})){const width=Math.max(1,...data.template.map(t=>(t.adaptive?.[view]?.x??t.x)+(t.adaptive?.[view]?.width??t.width))),height=Math.max(1,...data.template.map(t=>(t.adaptive?.[view]?.y??t.y)+(t.adaptive?.[view]?.height??t.height)));p.x+=data.layout.paddingLeft+(data.layout.direction==='horizontal'?primary:secondary)*(width+data.layout.horizontalSpacing);p.y+=data.layout.paddingTop+(data.layout.direction==='vertical'?primary:secondary)*(height+data.layout.verticalSpacing);p.css.left=p.x+'px';p.css.top=p.y+'px';}}
     return {key:row.id,widgets};
   });
 }
 export function materializeWidgets(widgets:Widget[],states:Record<string,RepeaterState>={}):Widget[]{
-  return widgets.map(layoutTable).map(w=>({...w,...(w.repeater?{children:materializeRepeater(w.id,w.repeater,states[w.id]).flatMap(row=>materializeWidgets(row.widgets,states))}:w.children?{children:materializeWidgets(w.children,states)}:{}),...(w.states?{states:w.states.map(s=>({...s,widgets:materializeWidgets(s.widgets,states)}))}:{})}));
+  return widgets.map(layoutTable).map(w=>w.tree?.root?layoutTree(w):w).map(w=>({...w,...(w.repeater?{children:materializeRepeater(w.id,w.repeater,states[w.id]).flatMap(row=>materializeWidgets(row.widgets,states))}:w.children?{children:materializeWidgets(w.children,states)}:{}),...(w.states?{states:w.states.map(s=>({...s,widgets:materializeWidgets(s.widgets,states)}))}:{})}));
 }
-export function materializeTables(widgets:Widget[]):Widget[]{return widgets.map(layoutTable).map(w=>({...w,...(w.children?{children:materializeTables(w.children)}:{}),...(w.states?{states:w.states.map(s=>({...s,widgets:materializeTables(s.widgets)}))}:{})}));}
+export function materializeTables(widgets:Widget[]):Widget[]{return widgets.map(layoutTable).map(w=>w.tree?.root?layoutTree(w):w).map(w=>({...w,...(w.children?{children:materializeTables(w.children)}:{}),...(w.states?{states:w.states.map(s=>({...s,widgets:materializeTables(s.widgets)}))}:{})}));}
 export function materializePage(page:Page,states:Record<string,RepeaterState>={}):Page {return {...page,widgets:materializeWidgets(page.widgets,states)};}
 
 export function readRepeaterProperty(data:RepeaterData,state:RepeaterState|undefined,property:WidgetProperty):number|undefined {

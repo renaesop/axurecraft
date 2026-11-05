@@ -3,7 +3,7 @@ import type { UIExpression, Scalar, WidgetProperty } from './model.ts';
 
 export interface ExpressionContext {
   now?():number;
-  readRowIndex?():number;
+  readRowIndex?():number|undefined;
   readEvent?(property:string):Scalar|undefined;
   readWidget(id: string, property: WidgetProperty): Scalar | undefined;
   readColumn?(id:number):Scalar|undefined;

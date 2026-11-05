@@ -13,6 +13,8 @@ test('filter, update, mark, delete and add compose without mutating the canonica
  apply({operation:'remove-filter',label:'name'});assert.equal(selectRepeaterRows(data,state)[0].id,'2');
  apply({operation:'add',rows:[{'1':{kind:'text',value:'Dee'}},{'1':{kind:'text',value:'Eve'}}]});state=updateRepeaterState(data,state,{kind:'repeater-page',value:'last'});assert.equal(selectRepeaterRows(data,state)[0].cells['1'].kind,'text');assert.equal(state.page,2);
  apply({operation:'delete',selection:'all'});assert.equal(state.page,1);assert.deepEqual(data,original);
+ const indexed=updateRepeaterState(data,undefined,{kind:'repeater-data',repeaterAction:{operation:'filter',condition:{kind:'binary',operator:'==',left:{kind:'row-index'},right:{kind:'literal',value:2}}}});assert.deepEqual(selectRepeaterRows(data,indexed).map(r=>r.id),['2']);
+ const numbered=updateRepeaterState(data,undefined,{kind:'repeater-data',repeaterAction:{operation:'update',selection:'all',values:{'1':{kind:'expression',expression:{kind:'row-index'}}}}});assert.deepEqual(numbered.rows?.map(r=>r.cells['1']),[{kind:'text',value:'1'},{kind:'text',value:'2'},{kind:'text',value:'3'}]);
 });
 test('sort removal uses label and filters survive sort/page actions',()=>{
  let state=updateRepeaterState(data,undefined,{kind:'repeater-sort',sort:{columnId:1,ascending:false,type:'text',label:'descending'}});

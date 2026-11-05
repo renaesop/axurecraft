@@ -105,21 +105,21 @@ export function repeaterRows(g: Graph, widget: Value, variables: GlobalVariable[
     const scope=field(expression.body,'scope');
     if(scope?.entries?.length||scope?.items?.length){problems.add('Local-variable repeater expression omitted');return;}
     const scopeId=number(field(expression.body,'repeater-scope'),-1);
-    if(scopeId!==dataset!.id&&guid(scopeId)!==ZERO_GUID){problems.add('Expression belongs to another dataset');return;}
+    const ownScope=scopeId===dataset!.id||guid(scopeId)===ZERO_GUID;
     const aliases=new Map<string,number>();
     for(const ref of items(field(expression.body,'variable-identifiers'))){
       const identifier=object(g,ref),name=str(field(identifier?.body,'Name'));
       const match=/^(?:Item|TargetItem)\.(.+)$/i.exec(name),id=number(field(identifier?.body,'Id'),-1);
       if(match&&columns.has(id))aliases.set(match[1].toLowerCase(),id);
     }
-    const column=(name:string):number|undefined=>aliases.get(name.toLowerCase())??[...columns].find(([,label])=>label===name.toLowerCase())?.[0];
+    const column=(name:string):number|undefined=>aliases.get(name.toLowerCase())??(ownScope?[...columns].find(([,label])=>label===name.toLowerCase())?.[0]:undefined);
     const text=str(field(expression.body,'value'));
     const pattern=/\[\[\s*(?:Item|TargetItem)\.([^\[\]\s.()+*/]+)\s*\]\]/gi;
     if(/\[\[|\]\]/.test(text.replace(pattern,''))){problems.add('Unsupported arithmetic or function in repeater expression');return;}
     let cursor=0;const parts:RowExpression[]=[];
     for(const match of text.matchAll(pattern)){
       if(match.index>cursor)parts.push({kind:'literal',value:text.slice(cursor,match.index)});
-      const id=column(match[1]);if(id===undefined){problems.add(`Unresolved repeater column ${match[1]}`);return;}
+      const id=column(match[1]);if(id===undefined){problems.add(ownScope?`Unresolved repeater column ${match[1]}`:'Expression belongs to another dataset');return;}
       parts.push({kind:'column',columnId:id});cursor=match.index+match[0].length;
     }
     if(cursor<text.length||!parts.length)parts.push({kind:'literal',value:text.slice(cursor)});

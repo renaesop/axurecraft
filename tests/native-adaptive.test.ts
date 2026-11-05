@@ -12,3 +12,7 @@ test('native page view sets and panel-state literals resolve stable GUID identit
  const page=graph([object(1,'page',{AdaptiveViewSetId:2})],['page','set']);assert.deepEqual(nativeViews(doc,page)?.views.map(v=>[v.id,v.parent,v.width]),[['base','base',0],['phone','base',375]]);
  const literal=object(9,'Axure:Expr:DynamicPanelDiagramLiteral',{'panel-diagram-id-objectid':2});const g=graph([root,literal],['owner','state-guid']);assert.deepEqual(nativeExpressions(g,root,[],undefined,{stateNames:new Map([['state-guid','Second']])}).compile(literal),{kind:'literal',value:'Second'});
 });
+test('master views resolve the embedded set in the master record, independently of document view IDs',()=>{
+ const master=object(1,'Axure:Master',{AdaptiveViewSet:2}),set=object(2,'Axure:AdaptiveViewSet',{DefaultAdaptiveView:3,AdaptiveViews:[4]}),base=object(3,'view',{Id:3,Name:'Base',BaseViewId:3,Size:{Width:0,Height:0}}),mobile=object(4,'view',{Id:4,Name:'Mobile',BaseViewId:3,Size:{Width:0,Height:0}});
+ const g=graph([master,set,base,mobile],['master','set','base','mobile']);assert.deepEqual(nativeViews(graph([],[]),g)?.views.map(v=>[v.id,v.name,v.parent]),[['base','Base','base'],['mobile','Mobile','base']]);
+});

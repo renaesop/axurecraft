@@ -1,3 +1,4 @@
+import {bindSubmenu} from './menu.ts';
 import {openFlyout,closeFlyout,backdropStyle} from './popups.ts';
 import {bindSyntheticEvents,syntheticEvents,eventValues,type EventValues} from './input-events.ts';
 import {chooseAdaptiveView,type AdaptiveDefinition} from './adaptive.ts';
@@ -166,6 +167,7 @@ function run(actions:Action[],depth=0,values:EventValues={}):Promise<void>{
   },depth);
 }
 function bind(id:string,list:Behavior[],row=false):void {
+  const menu=widgets.find(w=>w.id===id)?.menu;if(menu)bindSubmenu(id,menu.trigger,actions=>void run(actions));
   const el=id==='$page'?document.body:document.getElementById(id);if(!el)return;
   if(list.some(b=>(syntheticEvents as readonly string[]).includes(b.event)))bindSyntheticEvents(el,list.map(b=>b.event),(name,values)=>{for(const b of list)if(b.event===name)void run(b.actions,0,values);},()=>!!disabled[id]);
   if(widgets.find(w=>w.id===id)?.imageAssets)for(const [name,key,value]of [['mouseenter','hovered',true],['mouseleave','hovered',false],['mousedown','pressed',true],['mouseup','pressed',false]] as const)el.addEventListener(name,()=>{imagePointer[id]={...imagePointer[id],[key]:value,...(name==='mouseleave'?{pressed:false}:{})};applyImage(id);});

@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';import {readFileSync,writeFileSync} from 'node:fs';import {resolve,join} from 'node:path';import {pathToFileURL} from 'node:url';import {chromium} from 'playwright-core';
+import {emitProject} from '../src/emit.ts';import {parseSemanticProject} from '../src/semantic.ts';import {instantiateMaster} from '../src/master.ts';import type {Widget} from '../src/model.ts';
+const project=parseSemanticProject(readFileSync('examples/hello.project.json','utf8')),page=project.pages[0],base=page.widgets[0];project.pages=[page];
+const shape=(id:string,y:number):Widget=>({...structuredClone(base),id,name:id,kind:'shape',type:'VectorShape',x:0,y,width:130,height:30,css:{},content:[],behaviors:[],variants:undefined});
+const label=shape('label',0);label.content=[{kind:'text',css:{},paragraphs:[{css:{},runs:[{text:'original',css:{}}]}]}];
+const button=shape('button',40);button.kind='control';button.content=[{kind:'control',control:'button',label:'Change',value:'Change',placeholder:'',disabled:false,readOnly:false}];button.behaviors=[{event:'click',actions:[{kind:'set-text',target:'label',expression:{kind:'literal',value:'changed'}},{kind:'state',target:'panel',value:'second'}]}];
+const radio=shape('radio',80);radio.kind='control';radio.content=[{kind:'control',control:'radio',label:'Choice',value:'Choice',placeholder:'',disabled:false,readOnly:false,group:'choice'}];
+const panel=shape('panel',120);panel.kind='panel';panel.states=[{id:'first',name:'First',widgets:[{...shape('red',0),css:{background:'red'}}]},{id:'second',name:'Second',widgets:[{...shape('green',0),css:{background:'green'}}]}];
+const template=[label,button,radio,panel];page.widgets=['a','b'].map((id,i)=>({...shape(id,30),kind:'group',type:'ReferenceDiagramObject',x:30+i*200,width:130,height:160,children:instantiateMaster(template,id+'--')}));page.behaviors=[];page.width=500;page.height=300;
+const out=resolve('output/master-check');await emitProject(parseSemanticProject(JSON.stringify(project)),new Map(),out,'original-master-fixture.json');
+const browser=await chromium.launch({executablePath:process.env.CHROME_PATH??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true}),errors:string[]=[],results:unknown[]=[];
+try{const tab=await browser.newPage();tab.on('pageerror',e=>errors.push(e.message));for(const renderer of ['','react']){
+ await tab.goto(pathToFileURL(join(out,renderer,page.file)).href,{waitUntil:'networkidle'});
+ await tab.locator('#a--button button').click();assert.equal(await tab.locator('#a--label').textContent(),'changed');assert.equal(await tab.locator('#b--label').textContent(),'original');assert.equal(await tab.locator('#a--green').isVisible(),true);assert.equal(await tab.locator('#b--green').isVisible(),false);
+ await tab.locator('#a--radio input').check();await tab.locator('#b--radio input').check();assert.equal(await tab.locator('#a--radio input').isChecked(),true);assert.equal(await tab.locator('#b--radio input').isChecked(),true);
+ assert.equal(await tab.evaluate(()=>{const ids=[...document.querySelectorAll('[id]')].map(e=>e.id);return ids.length===new Set(ids).size;}),true);results.push({renderer:renderer||'html',instanceActions:true,panelStateIsolation:true,radioIsolation:true,uniqueIds:true});
+}assert.deepEqual(errors,[]);writeFileSync(join(out,'validation.json'),JSON.stringify({results,errors},null,2));console.log(results);}finally{await browser.close();}

@@ -143,6 +143,7 @@ export function parseSemanticProject(json:string):Project {
       if(w.tree!==undefined){const t=object(w.tree,p+'.tree');boolean(t.root,p+'.tree.root');boolean(t.expanded,p+'.tree.expanded');if(number(t.rowHeight,p+'.rowHeight')<0)fail(p+'.rowHeight','nonnegative height');array(t.nodes,p+'.tree.nodes').forEach(id=>string(id,p+'.node'));for(const key of ['toggleId','labelId'])if(t[key]!==undefined)string(t[key],p+'.tree.'+key);}
       if(w.panel!==undefined){const l=object(w.panel,p+'.panel');for(const key of ['percentWidth','fitToContent'])if(l[key]!==undefined)boolean(l[key],p+'.panel.'+key);if(l.fixed!==undefined){const f=object(l.fixed,p+'.panel.fixed');if(!['left','center','right'].includes(string(f.horizontal,p+'.horizontal'))||!['top','center','bottom'].includes(string(f.vertical,p+'.vertical')))fail(p+'.panel.fixed','pin alignments');number(f.marginX,p+'.marginX');number(f.marginY,p+'.marginY');boolean(f.keepInFront,p+'.keepInFront');}}
       if(w.children!==undefined)widgets(w.children,p+'.children',ids,depth+1);
+      if(w.menu!==undefined)string(object(w.menu,p+'.menu').trigger,p+'.menu.trigger');
       if(w.kind==='table'||w.table!==undefined){
         if(w.kind!=='table')fail(p+'.kind','table when table metadata is present');
         const t=object(w.table,p+'.table');

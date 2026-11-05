@@ -1,3 +1,6 @@
+import {snapshotSurface,applySnapshotActions} from './snapshot.ts';
+import {nativeBackground} from './native-background.ts';
+import {instantiateMaster} from './master.ts';
 import {adaptiveChain} from './adaptive.ts';
 import {nativeViews,adaptiveStyle} from './native-adaptive.ts';
 import {widgetStyle} from './render-tree.ts';
@@ -43,7 +46,7 @@ export function convertRp9(data:Buffer):Conversion {
   // Panel state records share their owning page's widget namespace. Other pages remain isolated.
   const contexts=new Map<Graph,NativeContext>();
   for(const page of pageGraphs){
-    const graphs=new Set<Graph>();const collect=(g:Graph)=>{if(graphs.has(g))return;graphs.add(g);for(const w of g.objects.values())for(const ref of items(field(w.body,'panel-diagrams'))){const child=graphByGuid.get(g.guids[Number(ref.values?.[1])-1]);if(child)collect(child);}};collect(page);
+    const graphs=new Set<Graph>();const collect=(g:Graph)=>{if(graphs.has(g))return;graphs.add(g);for(const w of g.objects.values()){const pair=field(w.body,'ReferredMaster')?.values,master=pair&&graphByGuid.get(g.guids[Number(pair[1])-1]);if(master)collect(master);}for(const w of g.objects.values())for(const ref of items(field(w.body,'panel-diagrams'))){const child=graphByGuid.get(g.guids[Number(ref.values?.[1])-1]);if(child)collect(child);}};collect(page);
     const references=new Map<string,NativeReference>();for(const g of graphs)for(const widget of g.objects.values())if(widget.className?.startsWith('Axure:DiagramObject:'))references.set(g.guids[widget.id!-1],{graph:g,widget});
     const stateNames=new Map<string,string>();for(const state of graphs)for(const o of state.objects.values())if(o.className==='Axure:PanelDiagram')stateNames.set(state.guids[1],str(field(o.body,'Name')));
     for(const g of graphs)contexts.set(g,{references,stateNames});
@@ -105,9 +108,11 @@ export function convertRp9(data:Buffer):Conversion {
     css['--rp-image-frame-display']='none';
   };
   const imageFrame=(css:Record<string,string>,width:number,height:number,id:string):ImageContent['frame']=>({id:id+'-image-mask',width,height,radius:parseFloat(css['--rp-image-radius'])||0,borderWidth:css['--rp-image-border-style']==='none'?0:parseFloat(css['--rp-image-border-width'])||0,borderColor:css['--rp-image-border-color']});
+  const snapshotStack=new Set<Graph>();
   let viewChain:string[]=[];
   let widgetCount=0,panelCount=0,repeaterCount=0;
-  function diagram(g:Graph,d:Value|undefined,depth=0,prefix='',templateImages?:Set<string>):Widget[]{
+  type MasterOverride={graph:Graph;value:Value};
+  function diagram(g:Graph,d:Value|undefined,depth=0,prefix='',templateImages?:Set<string>,masterOverrides=new Map<string,MasterOverride>()):Widget[]{
     if(depth>20){issues.push({feature:'nesting',detail:'Diagram nesting exceeds 20'});return [];}
     const list=items(field(d?.body,'diagram-objects')).map(ref=>object(g,ref)).filter((w):w is Value=>!!w);
     const result:Widget[]=[];
@@ -143,6 +148,49 @@ export function convertRp9(data:Buffer):Conversion {
         if(number(props.get(P.ROTATION))||number(props.get(P.OPACITY),1)!==1||bool(field(w.body,'Propagate'))){
           issues.push({widget:widget.id,feature:'group-style',detail:'Group rotation, opacity or propagated interaction styles require native verification; child geometry and styles retained'});
         }
+      }else if(type==='Screenshot'){
+        widget.kind='shape';
+        const pair=field(w.body,'reference-package-id')?.values,guid=pair?g.guids[Number(pair[1])-1]:undefined,reference=guid?graphByGuid.get(guid):undefined;
+        if(!reference?.root){if(guid&&guid!=='00000000000000000000000000000000')issues.push({widget:widget.id,feature:'snapshot-reference',detail:'Referenced snapshot page is missing: '+guid});}
+        else if(snapshotStack.has(reference))issues.push({widget:widget.id,feature:'snapshot-cycle',detail:'Recursive snapshot reference omitted'});
+        else{
+          snapshotStack.add(reference);const savedChain=viewChain;viewChain=[];
+          try{
+            const contents=diagram(reference,prop(reference,reference.root,'diagram'),depth+1);
+            const pageStyle=prop(reference,reference.root,'page-style'),pageProps=pageStyle?resolveStyle(reference,pageStyle,doc):new Map<number,Value>();
+            const size=pageProps.get(P.SIZE),padding=field(w.body,'Padding');
+            const preview=readBehaviors(g,w,pageByGuid,issues,false,variables,asset,contexts.get(reference),prop(g,w,'PreviewMap'));
+            applySnapshotActions(contents,preview.flatMap(b=>b.actions),new Map(variables.map(v=>[v.name.toLowerCase(),v.defaultValue])),detail=>issues.push({widget:widget.id,feature:'snapshot-preview',detail}));
+            const originX=reference.className==='Axure:Master'?visibleDiagramLeft(contents):0,originY=reference.className==='Axure:Master'&&contents.length?Math.min(...contents.map(w=>w.y)):0;
+            const bounds=visibleDiagramBounds(contents,-originX,-originY);
+            Object.assign(widget,snapshotSurface(widget,contents,{originX,originY,width:Math.max(bounds.right,number(field(size,'Width'))),height:Math.max(bounds.bottom,number(field(size,'Height'))),background:nativeBackground(pageProps,asset),fit:bool(field(w.body,'ScaleToFit'),true),zoom:number(field(w.body,'Zoom'),1),panX:number(field(w.body,'PanX')),panY:number(field(w.body,'PanY')),padding:{left:number(field(padding,'Left')),top:number(field(padding,'Top')),right:number(field(padding,'Right')),bottom:number(field(padding,'Bottom'))},vertical:number(props.get(P.VERTICAL_ALIGNMENT),1) as 0|1|2}));
+          }finally{snapshotStack.delete(reference);viewChain=savedChain;}
+        }
+      }else if(type==='ReferenceDiagramObject'){
+        widget.kind='group';widget.css=css.display==='none'?{display:'none'}:{};
+        const pair=field(w.body,'ReferredMaster')?.values,master=pair&&graphByGuid.get(g.guids[Number(pair[1])-1]);
+        if(!master?.root)issues.push({widget:widget.id,feature:'master-reference',detail:'Referenced master record is missing'});
+        else{
+          const ownOverride=masterOverrides.get(idFor(g,w)),overrideView=ownOverride?.graph.guids[number(field(ownOverride.value,'ViewId'))-1];
+          const savedChain=viewChain,views=nativeViews(doc!,master),selected=overrideView&&overrideView!=='00000000000000000000000000000000'?overrideView:g.guids[number(props.get(P.MASTER_VIEW))-1],view=views?.views.find(v=>v.id===selected)??views?.views.find(v=>v.id===views.defaultId);
+          viewChain=view&&views?adaptiveChain(views.views,view.id):[];
+          const overrides=new Map<string,MasterOverride>(),entries=items(field(w.body,'ObjectOverrides'));
+          for(let n=0;n+1<entries.length;n+=2){
+            const path=object(g,entries[n]),guid=g.guids[number(field(path?.body,'object-id'))-1];
+            const route=items(field(path?.body,'rdo-path')).map(ref=>'w-'+g.guids[number(ref)-1]+'--').join('');
+            overrides.set(route+'w-'+guid,{graph:g,value:entries[n+1]});
+          }
+          // Outer-instance overrides take precedence over defaults in nested masters.
+          for(const [id,value]of masterOverrides)if(id.startsWith(widget.id+'--'))overrides.set(id.slice(widget.id.length+2),value);
+          let members:Widget[];
+          try{members=diagram(master,prop(master,master.root,'diagram'),depth+1,'',templateImages,overrides);}finally{viewChain=savedChain;}
+          const originX=members.length?Math.min(...members.map(c=>c.x)):0,originY=members.length?Math.min(...members.map(c=>c.y)):0;
+          for(const child of members){child.x-=originX;child.y-=originY;}
+          const ids=new Set(flattenWidgets(members).map(c=>c.id));
+          for(const id of overrides.keys())if(!ids.has(id))issues.push({widget:widget.id,feature:'master-override',detail:'Master override target is missing: '+id});
+          widget.children=instantiateMaster(members,widget.id+'--',{radio:bool(field(w.body,'IsolateRadioGroups'),true),selection:bool(field(w.body,'IsolateSelectionGroups'),true)});
+          const bounds=visibleDiagramBounds(widget.children);widget.width=bounds.right;widget.height=bounds.bottom;
+        }
       }else if(type==='InlineFrame'){
         widget.kind='frame';css.border='0';css.background='transparent';
         try{
@@ -153,7 +201,7 @@ export function convertRp9(data:Buffer):Conversion {
         }catch(error){issues.push({widget:widget.id,feature:'frame-target',detail:String(error)});}
       }else if(type==='TreeNodeObject'){
         widget.kind='tree';widget.css={background:'transparent',border:'0',overflow:'visible',...(css.display?{display:css.display}:{})};
-        widget.children=diagram(g,w,depth+1,prefix,templateImages);
+        widget.children=diagram(g,w,depth+1,prefix,templateImages,masterOverrides);
         const root=prop(g,w,'rootnode'),isRoot=number(field(w.body,'rootnode'))===w.id;
         const childIds=new Set(items(field(w.body,'childnodes')).map(ref=>number(ref)));
         const label=widget.children.find(c=>c.source.objectId===number(field(w.body,'buttonshape'))),toggle=widget.children.find(c=>c.source.objectId===number(field(w.body,'plusminus')));
@@ -168,10 +216,14 @@ export function convertRp9(data:Buffer):Conversion {
         if(isRoot)Object.assign(widget,layoutTree(widget));
       }else if(type==='MenuObject'){
         widget.kind='menu';css.background='transparent';css.border='0';
-        widget.children=diagram(g,w,depth+1,prefix,templateImages);
-        if(items(field(w.body,'submenus')).length)issues.push({widget:widget.id,feature:'menu-submenu',detail:'Top-level menu table retained; submenu opening and positioning are not implemented'});
+        widget.children=diagram(g,w,depth+1,prefix,templateImages,masterOverrides);
+        const entries=items(field(w.body,'submenus')),all=flattenWidgets(widget.children);
+        for(let n=0;n+1<entries.length;n+=2){const trigger=all.find(c=>c.source.objectId===number(entries[n])),submenu=widget.children.find(c=>c.source.objectId===number(entries[n+1]));
+          if(trigger&&submenu){submenu.menu={trigger:trigger.id};submenu.css.display='none';}
+          else issues.push({widget:widget.id,feature:'menu-reference',detail:'Submenu or trigger cell reference is missing'});
+        }
       }else if(type==='Table'){
-        widget.children=diagram(g,w,depth+1,prefix,templateImages);
+        widget.children=diagram(g,w,depth+1,prefix,templateImages,masterOverrides);
         widget.css=css.display==='none'?{display:'none'}:{};
         try{
           const {table,cellIds}=readTable(g,w),byId=new Map(widget.children.map(c=>[c.source.objectId,c]));
@@ -215,7 +267,7 @@ export function convertRp9(data:Buffer):Conversion {
           if(state&&stateDiagram){
             const stateStyle=prop(state,stateDiagram,'PanelDiagramStyle');
             const stateCss=stateStyle?styleToCss(resolveStyle(state,stateStyle,doc)):{};
-            widget.states.push({id:guid,name:str(field(stateDiagram.body,'Name')),css:stateCss,widgets:diagram(state,stateDiagram,depth+1,prefix,templateImages)});
+            widget.states.push({id:guid,name:str(field(stateDiagram.body,'Name')),css:stateCss,widgets:diagram(state,stateDiagram,depth+1,prefix,templateImages,masterOverrides)});
           }
           else issues.push({widget:widget.id,feature:'panel-state',detail:`Missing state ${guid}`});
         }
@@ -232,7 +284,7 @@ export function convertRp9(data:Buffer):Conversion {
         const repStyle=styleProperties(prop(g,w,'RepeaterStyle'));
         const rawPageSize=number(repStyle.get(P.ITEMS_PER_PAGE),0xffffffff);
         const perPage=rawPageSize===0xffffffff?0:Math.max(0,Math.floor(rawPageSize));
-        const template=diagram(g,base,depth+1,'',new Set(rowData.programs.filter(p=>p.kind==='image').map(p=>p.target)));
+        const template=diagram(g,base,depth+1,'',new Set(rowData.programs.filter(p=>p.kind==='image').map(p=>p.target)),masterOverrides);
         const columns=items(field(dataset?.body,'columns')).map(ref=>{
           const column=object(g,ref);return {id:number(field(column?.body,'variable-id'),-1),name:str(field(column?.body,'name'))};
         });
@@ -336,6 +388,14 @@ export function convertRp9(data:Buffer):Conversion {
           widget.variants={...widget.variants,[variant]:{css:appearanceCss,...(JSON.stringify(content)===JSON.stringify(widget.content)?{}:{content})}};
         }
       }
+      const override=masterOverrides.get(idFor(g,w));
+      if(override){
+        const image=asset(field(override.value,'Image')),text=field(override.value,'Text');
+        for(const content of [widget.content,...Object.values(widget.variants??{}).flatMap(v=>v.content?[v.content]:[])])for(const c of content){
+          if(c.kind==='image'&&image)c.asset=image;
+          if(c.kind==='text'&&text){const p=c.paragraphs[0]??{css:{},runs:[]};c.paragraphs=[{css:p.css,runs:[{text:str(text),css:p.runs[0]?.css??{}}]}];}
+        }
+      }
       result.push(widget);
     }
     return nestGroups(result,groupMembers);
@@ -346,7 +406,7 @@ export function convertRp9(data:Buffer):Conversion {
     const pageStyle=prop(g,g.root,'page-style');
     const props=pageStyle?resolveStyle(g,pageStyle,doc):new Map<number,Value>();
     const bounds=visibleDiagramBounds(widgets);
-    const page:Page={id:g.guids[1],name:names.get(g.guids[1])??`Page ${i+1}`,file:pageByGuid.get(g.guids[1])!,width:Math.ceil(bounds.right),height:Math.ceil(bounds.bottom),background:fillToCss(props.get(P.FILL)),...(number(props.get(P.PAGE_ALIGNMENT))===1?{alignment:'center' as const,contentLeft:visibleDiagramLeft(widgets)}:{}),widgets,behaviors:readBehaviors(g,g.root!,pageByGuid,issues,false,variables,asset,contexts.get(g))};
+    const page:Page={id:g.guids[1],name:names.get(g.guids[1])??`Page ${i+1}`,file:pageByGuid.get(g.guids[1])!,width:Math.ceil(Math.max(bounds.right,number(field(props.get(P.SIZE),'Width')))),height:Math.ceil(Math.max(bounds.bottom,number(field(props.get(P.SIZE),'Height')))),background:nativeBackground(props,asset),...(number(props.get(P.PAGE_ALIGNMENT))===1?{alignment:'center' as const,contentLeft:visibleDiagramLeft(widgets)}:{}),widgets,behaviors:readBehaviors(g,g.root!,pageByGuid,issues,false,variables,asset,contexts.get(g))};
     if(views&&views.views.length>1){
       const walk=(list:Widget[]):Widget[]=>list.flatMap(w=>[w,...walk(w.children??[]),...(w.states??[]).flatMap(s=>walk(s.widgets)),...walk(w.repeater?.template??[])]);
       const originals=walk(widgets),layouts:NonNullable<Page['adaptive']>['layouts']={};
@@ -355,7 +415,7 @@ export function convertRp9(data:Buffer):Conversion {
         viewChain=adaptiveChain(views.views,view.id);
         const converted=view.id===views.defaultId?widgets:diagram(g,prop(g,g.root,'diagram')),byId=new Map(walk(converted).map(w=>[w.id,w]));
         const bounds=visibleDiagramBounds(converted),pageProps=new Map([...props,...adaptiveStyle(g,g.root!,viewChain)]);
-        layouts[view.id]={width:Math.ceil(bounds.right),height:Math.ceil(bounds.bottom),contentLeft:visibleDiagramLeft(converted),alignment:number(pageProps.get(P.PAGE_ALIGNMENT))===1?'center':'left',background:fillToCss(pageProps.get(P.FILL))};
+        layouts[view.id]={width:Math.ceil(Math.max(bounds.right,number(field(pageProps.get(P.SIZE),'Width')))),height:Math.ceil(Math.max(bounds.bottom,number(field(pageProps.get(P.SIZE),'Height')))),contentLeft:visibleDiagramLeft(converted),alignment:number(pageProps.get(P.PAGE_ALIGNMENT))===1?'center':'left',background:nativeBackground(pageProps,asset)};
         for(const original of originals){const current=byId.get(original.id);if(current)original.adaptive={...original.adaptive,[view.id]:paint(current)};}
       }
       for(const original of originals)if(Object.values(original.adaptive??{}).every(p=>JSON.stringify(p)===JSON.stringify(paint(original))))delete original.adaptive;

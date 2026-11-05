@@ -260,6 +260,7 @@ export interface Widget {
     /** Fixed native table tracks; children are cells in row-major order. */
     panel?: import('./panel.ts').PanelLayout;
     tree?: import('./tree.ts').TreeNode;
+    menu?: {trigger:string};
     table?: { rowHeights: number[]; columnWidths: number[] };
     repeater?: RepeaterData;
     /** Derived view only: materializeRepeater adds this; conversion does not serialize it. */

@@ -14,3 +14,8 @@ test('dataset column IDs are remapped by GUID across records, never by coinciden
  assert.equal(nativeColumnId(graph,2,[{id:99,name:'Name',guid}]),99);
  assert.throws(()=>nativeColumnId(graph,1,[{id:1,name:'Name',guid}]),/Unresolved target dataset/);
 });
+test('master-scoped targets include instance GUIDs and reject missing instance paths',()=>{
+ const owner:Value={tag:9,id:1,className:'Axure:DiagramObject:VectorShape'},instance:Value={tag:9,id:2,className:'Axure:DiagramObject:ReferenceDiagramObject'},child:Value={tag:9,id:3,className:'Axure:DiagramObject:TextBox'};
+ const g={objects:new Map([[1,owner],[2,instance],[3,child]]),guids:['owner','instance','child']} as unknown as Graph,path:Value={tag:9,body:{tag:1,entries:[[{tag:8,text:'object-id'},{tag:3,value:3}],[{tag:8,text:'rdo-path'},{tag:2,items:[{tag:3,value:2}]}]]}};
+ assert.equal(nativeExpressions(g,owner).target(path),'w-instance--w-child');g.objects.delete(2);assert.throws(()=>nativeExpressions(g,owner).target(path),/Unresolved master scope/);
+});

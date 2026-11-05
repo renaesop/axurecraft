@@ -10,8 +10,8 @@ import type { Action, Behavior, ConversionIssue, ConditionalBranch, GlobalVariab
 const events: Record<number, string> = { 16: 'click', 17: 'dblclick', 18: 'mouseenter', 19:'mousemove', 20: 'mouseleave',21:'mousedown',22:'mouseup',32:'keydown',33:'keyup',51:'selectionchange',323:'contextmenu',256:'swipeleft',257:'swiperight',258:'swipeup',259:'swipedown',272:'dragstart',273:'drag',274:'dragdrop',321:'resize',322:'scroll',324:'scrolldown',325:'scrollup',337:'longclick',338:'adaptivechange',276:'show',277:'hide',275:'move',278:'statechange',279:'rotate', 48: 'focus', 49: 'blur', 50: 'textchange', 52: 'selectedchange', 53: 'select', 54: 'unselect', 288: 'load', 320: 'load', 289: 'itemload' };
 const zeroGuid = '00000000000000000000000000000000';
 
-export function readBehaviors(g: Graph, owner: Value, pageByGuid: Map<string, string>, issues: ConversionIssue[], rowBindings=false, variables: GlobalVariable[] = [], asset?:((v:Value|undefined)=>string|undefined),context:NativeContext={}): Behavior[] {
-  const map = prop(g, owner, 'InteractionMap') ?? prop(g, owner, 'interactionmap');
+export function readBehaviors(g: Graph, owner: Value, pageByGuid: Map<string, string>, issues: ConversionIssue[], rowBindings=false, variables: GlobalVariable[] = [], asset?:((v:Value|undefined)=>string|undefined),context:NativeContext={},mapOverride?:Value): Behavior[] {
+  const map = mapOverride ?? prop(g, owner, 'InteractionMap') ?? prop(g, owner, 'interactionmap');
   if (!map) return [];
   const report = (feature: string, detail: string): void => {
     issues.push({ widget: owner.id === undefined ? undefined : `w-${g.guids[owner.id - 1]}`, feature, detail });

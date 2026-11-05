@@ -23,14 +23,14 @@ export function nativeExpressions(g: Graph, owner: Value, variables: GlobalVaria
     items(field(prop(g, w, 'BaseDiagram')?.body, 'diagram-objects')).some(ref => number(ref) === owner.id));
   const target = (path: Value | undefined): string => {
     if (!path) throw new Error('Missing widget path');
-    if (items(field(path.body, 'rdo-path')).length) throw new Error('Master-scoped expression target is unsupported');
+    const masterPath=items(field(path.body,'rdo-path')).map(ref=>{const id=number(ref),guid=g.guids[id-1],instance=g.objects.get(id)??context.references?.get(guid)?.widget;if(instance?.className!=='Axure:DiagramObject:ReferenceDiagramObject')throw new Error('Unresolved master scope '+guid);return 'w-'+guid+'--';}).join('');
     const id = number(field(path.body, 'object-id'), -1);
     if (g.guids[id - 1] === zeroGuid) return idFor(owner);
     const widget = g.objects.get(id)??context.references?.get(g.guids[id-1])?.widget;
     if (!widget?.className?.startsWith('Axure:DiagramObject:')) throw new Error(`Unresolved widget reference ${g.guids[id - 1] ?? id}`);
     const scope = items(field(path.body, 'repeater-path'));
     if(scope.some(ref=>{const id=number(ref),repeater=g.objects.get(id)??context.references?.get(g.guids[id-1])?.widget;return repeater?.className!=='Axure:DiagramObject:Repeater';}))throw new Error('Unresolved repeater scope');
-    return `w-${g.guids[id-1]}`;
+    return masterPath+`w-${g.guids[id-1]}`;
   };
   const pathArgument = (node: Value | undefined): string => {
     if (node?.className !== 'Axure:Expr:DiagramObjectPathLiteral') throw new Error('Expected widget path argument');

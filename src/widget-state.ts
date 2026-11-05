@@ -19,6 +19,7 @@ export interface WidgetStateDefinition {
   fixed?:boolean;
   instance?:Widget['instance'];
   tree?:Widget['tree'];
+  menu?:Widget['menu'];
   imageAssets?:Partial<Record<import('./model.ts').ImageState,string|null>>;
   kind: Widget['kind'];
   visible: boolean;
@@ -46,7 +47,7 @@ function selectionControl(widget:Widget):'checkbox'|'radio'|undefined {
 
 export function describeWidgets(widgets: Widget[]): WidgetStateDefinition[] {
   return flattenWidgets(widgets).map(w => ({
-    id: w.id, adaptive:w.adaptive, kind: w.kind,tree:w.tree,fixed:!!w.panel?.fixed,instance:w.instance,
+    id: w.id, adaptive:w.adaptive, kind: w.kind,tree:w.tree,menu:w.menu,fixed:!!w.panel?.fixed,instance:w.instance,
     imageAssets:w.kind==='image'?{normal:w.content.find(c=>c.kind==='image')?.asset,...Object.fromEntries(Object.entries(w.variants??{}).flatMap(([key,v])=>{const image=v.content?.find(c=>c.kind==='image');return image?[[key,image.asset]]:[];}))}:undefined, visible: w.css.display !== 'none',
     geometry:{x:w.x,y:w.y,width:w.width,height:w.height,rotation:parseFloat(/rotate\(([-.\d]+)/.exec(w.css.transform??'')?.[1]??'0')},
     selectionControl: selectionControl(w),

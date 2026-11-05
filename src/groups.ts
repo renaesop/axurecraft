@@ -35,7 +35,7 @@ export function nestGroups(flat: Widget[], members: ReadonlyMap<string, readonly
     if (active.size > 64) throw new Error('Group nesting exceeds 64');
     active.add(widget.id);
     let result = widget;
-    if (widget.kind === 'group') {
+    if (members.has(widget.id)) {
       const contents = (children.get(widget.id) ?? []).map(build);
       const x = contents.length ? Math.min(...contents.map(w => w.x)) : 0;
       const y = contents.length ? Math.min(...contents.map(w => w.y)) : 0;
@@ -53,7 +53,7 @@ export function nestGroups(flat: Widget[], members: ReadonlyMap<string, readonly
   // Also visit components with no root so a cycle cannot silently disappear.
   for (const widget of flat) build(widget);
   const roots = flat.filter(w => !parent.has(w.id)).map(build);
-  const order = (widgets: Widget[]): string[] => widgets.flatMap(w => [w.id, ...(w.kind === 'group' ? order(w.children ?? []) : [])]);
+  const order = (widgets: Widget[]): string[] => widgets.flatMap(w => [w.id, ...(members.has(w.id) ? order(w.children ?? []) : [])]);
   if (order(roots).some((id, index) => id !== flat[index].id)) {
     throw new Error('Group membership interleaves paint order; cannot preserve it as a DOM tree');
   }

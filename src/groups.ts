@@ -60,14 +60,29 @@ export function nestGroups(flat: Widget[], members: ReadonlyMap<string, readonly
   return roots;
 }
 
+/** Connector text can extend outside a zero-width/height shaft. Keep the shaft
+ * geometry unchanged; include the text panels only when measuring paint bounds. */
+function connectorTextBounds(w:Widget):{left:number;right:number;bottom:number} {
+  let left=0,right=w.width,bottom=w.height;
+  if(w.type==='Connector')for(const content of [w.content,...Object.values(w.variants??{}).flatMap(v=>v.content?[v.content]:[])])for(const c of content){
+    if(c.kind!=='text'||c.css.display==='none')continue;
+    const values=['left','top','width','height'].map(key=>c.css[key]?.endsWith('px')?parseFloat(c.css[key]):NaN);
+    if(!values.every(Number.isFinite))continue;
+    const [x,y,width,height]=values;
+    left=Math.min(left,x);right=Math.max(right,x+width);bottom=Math.max(bottom,y+height);
+  }
+  return {left,right,bottom};
+}
+
 /** Groups do not paint a rectangle; only visible descendants enlarge the page. */
 export function visibleDiagramBounds(widgets: Widget[], x = 0, y = 0): { right: number; bottom: number } {
   let right = 1, bottom = 1;
   for (const w of widgets) {
     if (w.css.display === 'none') continue;
+    const paint=connectorTextBounds(w);
     const bounds = w.kind === 'group'
       ? visibleDiagramBounds(w.children ?? [], x + w.x, y + w.y)
-      : { right: x + w.x + w.width, bottom: y + w.y + w.height };
+      : { right: x + w.x + paint.right, bottom: y + w.y + paint.bottom };
     right = Math.max(right, bounds.right);
     bottom = Math.max(bottom, bounds.bottom);
   }
@@ -77,6 +92,6 @@ export function visibleDiagramBounds(widgets: Widget[], x = 0, y = 0): { right: 
 /** Left edge of visible content, used by native centered-page layout. */
 export function visibleDiagramLeft(widgets: Widget[], x = 0): number {
   const edges = widgets.filter(w => w.css.display !== 'none').flatMap(w =>
-    w.kind === 'group' ? (w.children?.length ? [visibleDiagramLeft(w.children, x + w.x)] : []) : [x + w.x]);
+    w.kind === 'group' ? (w.children?.length ? [visibleDiagramLeft(w.children, x + w.x)] : []) : [x + w.x + connectorTextBounds(w).left]);
   return edges.length ? Math.min(...edges) : 0;
 }

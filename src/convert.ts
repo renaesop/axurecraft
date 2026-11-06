@@ -249,6 +249,9 @@ export function convertRp9(data:Buffer):Conversion {
         widget.kind='shape';const connector=parseConnector(g,w,props,widget.id,target=>new Map([...resolveStyle(g,target,doc),...adaptiveStyle(g,target,viewChain)]));
         if(connector){
           const {graphic,labelPoint,...geometry}=connector;Object.assign(widget,geometry);widget.css={...css,background:'transparent',border:'0'};widget.content.push(graphic);widget.connection=connectorInfo(g,w,prefix);
+          // The SVG owns the stroke. Longhand borders on this wrapper can
+          // override border:0 when React restores an appearance incrementally.
+          for(const key of Object.keys(widget.css))if(key.startsWith('border-'))delete widget.css[key];
           // RP9's text panel is 100 x 20, centered on the routed label point.
           connectorTextCss={left:`${labelPoint.x-50}px`,top:`${labelPoint.y-10}px`,right:'auto',bottom:'auto',width:'100px',height:'20px'};
           const label=richText(w,props,undefined,textOverrides,g);
@@ -359,10 +362,17 @@ export function convertRp9(data:Buffer):Conversion {
           for(const key of Object.keys(appearanceCss))if(key.startsWith('padding')||key==='justify-content'||key==='display')delete appearanceCss[key];
           const content=structuredClone(widget.content);
           if(widget.kind==='shape'){
-            const vector=isCssRectangle(w,merged,width,height)?undefined:parseVector(w,merged,width,height,widget.id+'-'+variant);
+            let vector;
+            if(type==='Connector'){
+              const paintProps=new Map(merged);
+              // Appearance styles change paint, not the base connector route.
+              for(const key of [P.LOCATION,P.SIZE]){const value=props.get(key);if(value)paintProps.set(key,value);else paintProps.delete(key);}
+              vector=parseConnector(g,w,paintProps,widget.id+'-'+variant,target=>new Map([...resolveStyle(g,target,doc),...adaptiveStyle(g,target,viewChain)]))?.graphic;
+            }else vector=isCssRectangle(w,merged,width,height)?undefined:parseVector(w,merged,width,height,widget.id+'-'+variant);
             const index=content.findIndex(c=>c.kind==='vector');
             if(vector){if(index>=0)content[index]=vector;else content.unshift(vector);}else if(index>=0)content.splice(index,1);
             if(vector){delete appearanceCss.background;delete appearanceCss['border-width'];delete appearanceCss['border-style'];delete appearanceCss['border-color'];}
+            if(type==='Connector'){appearanceCss.background='transparent';appearanceCss.border='0';}
           }
           if(widget.kind==='image'&&delta.has(P.IMAGE)){
             const src=asset(merged.get(P.IMAGE)),image=content.find(c=>c.kind==='image');

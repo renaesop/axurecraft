@@ -27,3 +27,20 @@ node scripts/validate-standalone.mjs output/connector-labels-check/react
 ## 验证边界
 
 报告者的私有文件及配套原生 HTML 不可用，不能声称验证了其中全部 160 个标签或原生截图等价。当前读取的连接线保存/加载方法没有提供已确认的独立标签拖动偏移字段；本变更不猜测其编码，也不凭经验添加白色底色。已验证的是上述默认位置、原生文字保留和两种输出的一致性。
+
+## 合入后的复查
+
+复查 #10 时补充了状态和页面边缘用例，并修复以下遗漏：
+
+- 连接线的悬停、按下、选中和禁用样式此前经过普通形状的矢量分支，导致 SVG 线条被移除。现在仍由连接线解析器生成对应颜色、线宽和箭头；外观里的位置/尺寸覆盖继续报告诊断，不改变基础路径或标签位置。
+- React 从悬停恢复普通样式时，外框残留的 `border-width` 会覆盖 `border: 0`，使标签和线条偏移。现在连接线外框不保留描边长属性，描边完全由 SVG 绘制。
+- 页面大小此前只统计线条外框，底部水平线和右侧竖线的文字可能被 `.rp-page` 裁切。现在可见边界包含标签面板，并递归处理分组；不扩大连接线本身的几何尺寸，隐藏内容也不撑大页面。
+
+新增原生状态样式及单条连线夹具。丢线和页边裁切回归在修复前均失败；浏览器测试还复现了 React 恢复普通样式后的 2px 偏移。
+
+```bash
+npx --no-install tsx scripts/validate-connector-label-states.ts
+node scripts/validate-standalone.mjs output/connector-label-states-check/pointer/react
+```
+
+浏览器脚本覆盖三种页边/零长度情况，以及普通、选中、禁用连接线的鼠标进入、按下、释放、离开过程。逐步检查路径、箭头引用/颜色、标签中心和页面裁切边界；共比较 15 个状态的 HTML/React 截图。报告及截图位于 `output/connector-label-states-check/`。原有静态定位、缩放和 DPR 检查仍保留。

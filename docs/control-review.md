@@ -127,4 +127,4 @@ npm run audit:controls -- output/control-audit.json project.rp library.rplib
 
 表格研究样例来自 [Axure 论坛 RowClickTable](https://forum.axure.com/t/single-row-click-for-table-and-open-details/70428)，原始和扩展版本分别为 66.8 KB / 117.6 KB。尚无同文件原生 HTML 基准，因此表格浏览器回归只证明当前结构、边框和交互实现，不声明像素等价。原生 Table 本身也不提供合并单元格或运行时增删/排序；这些效果通常来自覆盖控件或 Repeater，参见 [Axure Tables 文档](https://docs.axure.com/axure-rp/reference/tables/)。
 
-本轮进一步加入 Connector issue.rp，累计 243 个控件、38 条连线、60 个已吸附端点。纠正 10 个过期端点缓存、末端多余回折和细长 SVG 缩放留白；12 组固定软件栅格化截图均一致，480 次端点距离检查通过。新增五项单元回归后，公开测试 81 项、本地语料 41 项，共 122 项。详见[端点修复报告](flow-samples.md)。
+本轮进一步加入 Connector issue.rp，累计 243 个控件、38 条连线、60 个已吸附端点。纠正 10 个过期端点缓存、末端多余回折和细长 SVG 缩放留白；12 组固定软件栅格化截图均一致，480 次端点距离检查通过。新增六项单元回归后，公开测试 82 项、本地语料 41 项，共 123 项。详见[端点修复报告](flow-samples.md)。

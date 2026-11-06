@@ -47,3 +47,13 @@ test('reattached single legs remain orthogonal and curves retain authored contro
  const curve=parseConnector(g,{tag:9,body:value({...line,'connector-type':3,'control-points':[{LowerHandle:{X:50,Y:40},HigherHandle:{X:150,Y:60}}]})},box(10,20,0,0),'curve',()=>box(150,40,100,60))!;
  assert.equal(curve.graphic.paths[0].data,'M 0 0 C 40 20 140 40 190 80');
 });
+test('issue #3: a 23px vertical connector never appends a stale endpoint across the page',()=>{
+ const g=graph();g.guids.push('4ffb380b33f19a4791117af9ea33bbd0');
+ g.objects.set(4,{tag:9,body:value({})});g.objects.set(8,{tag:9,body:value({'from-x':1412,'from-y':2896,'to-x':1412,'to-y':2919})});
+ for(const type of [0,1]){
+  const raw:Value={tag:9,body:value({'start-diagram-object':1,'start-connector-id':2,'end-diagram-object':4,'end-connector-id':5,'end-point-x':798,'end-point-y':1914,'connector-type':type,segments:[8]})};
+  const c=parseConnector(g,raw,box(1412,2896,0,0),'issue-3',target=>target===g.objects.get(1)?box(1257,2571,310,325):box(1364,2919,95,47))!;
+  assert.deepEqual([c.x,c.y,c.width,c.height],[1412,2896,0,23]);
+  assert.equal(c.graphic.paths[0].data,'M 0 0 L 0 23');
+ }
+});

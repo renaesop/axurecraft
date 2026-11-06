@@ -51,6 +51,11 @@ jobs:
           npx --no-install playwright-core install --with-deps chromium
           node --input-type=module -e 'import {appendFileSync} from "node:fs"; import {chromium} from "playwright-core"; appendFileSync(process.env.GITHUB_ENV, `CHROME_PATH=${chromium.executablePath()}\n`);'
       - run: npm run test:ci:browser
+      - name: Run additional verification included in automated issue fixes
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'automation/issue-')
+        env:
+          ISSUE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/validate-issue-pr.mjs
       - run: npm run audit:structure
       - name: Build React export and typecheck standalone HTML runtime source
         run: npm run test:standalone
@@ -62,6 +67,7 @@ jobs:
           path: |
             output/**/validation.json
             output/standalone-validation.json
+            output/issue-validation.json
             output/demo/*.png
             output/variables-check/*.png
             output/tables-check/*.png

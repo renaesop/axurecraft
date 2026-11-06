@@ -15,18 +15,21 @@ export const labelCases = [
 ];
 export const connectorId = (index: number): string => 'w-' + (10 + index * 10).toString(16).padStart(32, '0');
 
-function pageRecord(): Buffer {
+interface FixtureOptions { only?: string; appearances?: boolean; state?: 'selected' | 'disabled'; appearanceGeometry?: boolean }
+function pageRecord(options: FixtureOptions): Buffer {
   const strings: string[] = [];
   const index = (s: string): number => { if (!strings.includes(s)) strings.push(s); return strings.indexOf(s) + 1; };
   const value = (v: unknown): Rp9Node => {
     if (typeof v === 'string') return { tag: 8, value: index(v) };
+    if (typeof v === 'boolean') return { tag: 25, byte: Number(v) };
     if (typeof v === 'number') return Number.isInteger(v) ? { tag: 3, value: v } : { tag: 6, rawHex: (() => { const b = Buffer.alloc(8); b.writeDoubleLE(v); return b.toString('hex'); })() };
     if (Array.isArray(v)) return { tag: 2, items: v.map(value) };
     return { tag: 1, entries: Object.entries(v as object).map(([k, v]) => [value(k), value(v)]) };
   };
   const object = (id: number, name: string, body: unknown): Rp9Node => ({ tag: 9, id, classIndex: index(name), body: value(body) });
-  const objects: Rp9Node[] = [object(2, 'Axure:Page', { diagram: 3 }), object(3, 'Axure:Diagram', { 'diagram-objects': labelCases.map((_, i) => 10 + i * 10) })];
+  const objects: Rp9Node[] = [object(2, 'Axure:Page', { diagram: 3 }), object(3, 'Axure:Diagram', { 'diagram-objects': labelCases.flatMap((c, i) => !options.only || c.name === options.only ? [10 + i * 10] : []) })];
   for (const [i, c] of labelCases.entries()) {
+    if (options.only && c.name !== options.only) continue;
     const id = 10 + i * 10, start = c.points[0], end = c.points.at(-1)!;
     const segments = c.type < 2 ? c.points.slice(1).map((point, n) => {
       const segmentId = id + 2 + n;
@@ -39,6 +42,7 @@ function pageRecord(): Buffer {
     ] : [{ Text: c.text, Family: 'Arial', Size: 12, Weight: 400, Color: 0xff333333 }];
     objects.push(object(id, 'Axure:DiagramObject:Connector', {
       MyStyle: id + 1, 'name-block': { text: c.name }, 'connector-type': c.type,
+      ...(options.state === 'selected' ? { Selected: true } : options.state === 'disabled' ? { Disabled: true } : {}),
       'end-point-x': end[0], 'end-point-y': end[1], segments,
       ...(c.type === 3 ? { 'control-points': [{ PathPoint: { X: 550, Y: 385 }, LowerHandle: { X: 440, Y: 280 }, HigherHandle: { X: 660, Y: 480 } }] } : {}),
       RichTextBlock: { 'attributed-string': { Paragraphs: [{ HorizontalAlignment: 1, Inlines: runs }] } },
@@ -48,15 +52,29 @@ function pageRecord(): Buffer {
       { DOAName: 10, Value: 1 }, { DOAName: 15, Value: 2 },
       { DOAName: 8, Value: { 'fill-type': 'solid', 'fill-color': 0xff333333 } },
       { DOAName: 17, Value: { Start: 1, End: 3 } },
+      ...(options.appearances ? [{ DOAName: 21, Value: { MouseOver: id + 5, MouseDown: id + 6, Selected: id + 7, Disabled: id + 8 } }] : []),
     ] }));
+    if (options.appearances) {
+      for (const [n, color] of [0xffcc0000, 0xff0000cc, 0xff008000, 0xff999999].entries()) {
+        objects.push(object(id + 5 + n, 'Axure:WidgetStyle', { PropList: [
+          { DOAName: 0x40000006, Value: { 'fill-type': 'solid', 'fill-color': color } },
+          { DOAName: 0x40000008, Value: { 'fill-type': 'solid', 'fill-color': color } },
+          { DOAName: 0x4000000f, Value: 3 + n },
+          ...(options.appearanceGeometry ? [
+            { DOAName: 0x40000065, Value: { X: 9999, Y: 9999 } },
+            { DOAName: 0x40000069, Value: { Width: 400, Height: 400 } },
+          ] : []),
+        ] }));
+      }
+    }
   }
   const guids = Array.from({ length: 100 }, (_, i) => (i + 1).toString(16).padStart(32, '0'));
   const payload = encodeRp9Payload([{ tag: 30, values: guids }, ...objects, { tag: 15, value: 2 }], strings);
   return Buffer.concat([words(27, 9, 0, 5, 0, 0xc351, 31, strings.length), ...strings.flatMap(s => { const b = Buffer.from(s); return [words(b.length), b]; }), payload]);
 }
 
-export function connectorLabelsFile(team = true): Buffer {
-  const document = nativeRecord(false), page = pageRecord();
+export function connectorLabelsFile(team = true, options: FixtureOptions = {}): Buffer {
+  const document = nativeRecord(false), page = pageRecord(options);
   if (team) return teamFile([{ path: ['WorkingCopy', 'DesignDocument'], bytes: document }, { path: ['WorkingCopy', 'labels', 'package'], bytes: page }]);
   const manifest = manifestFrame({ root: { parts: { DesignDocument: 0, page: document.length + 8 } } });
   return Buffer.concat([Buffer.from([0xac, 0xef, 9, 0]), words(manifest.length), manifest, words(0, document.length), document, words(0, page.length), page]);

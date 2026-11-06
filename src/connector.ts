@@ -23,11 +23,12 @@ export function connectorInfo(g:Graph,w:Value,prefix=''):ConnectorInfo {
 export function parseConnector(g:Graph,w:Value,props:Map<number,Value>,id:string,targetStyle=(target:Value)=>resolveStyle(g,target)):{x:number;y:number;width:number;height:number;graphic:VectorGraphic}|undefined {
  const type=number(field(w.body,'connector-type'),2);if(!routing[type])return;
  const info=connectorInfo(g,w);
- const endpoint=(side:'start'|'end',stored:Point):Point=>{
+ const endpoint=(side:'start'|'end'):Point|undefined=>{
   const target=object(g,field(w.body,side+'-diagram-object')),port=info[side].port;
-  return target&&port?connectorPoint(g,target,port,targetStyle(target))??stored:stored;
+  return target&&port?connectorPoint(g,target,port,targetStyle(target)):undefined;
  };
- const start=endpoint('start',at(props.get(101))),end=endpoint('end',{x:number(field(w.body,'end-point-x'),NaN),y:number(field(w.body,'end-point-y'),NaN)});
+ const attachedEnd=endpoint('end');
+ const start=endpoint('start')??at(props.get(101)),end=attachedEnd??{x:number(field(w.body,'end-point-x'),NaN),y:number(field(w.body,'end-point-y'),NaN)};
  if(!valid(start)||!valid(end))return;
  const points:Point[]=[start],control=items(field(w.body,'control-points'))[0];
  let handles:Point[]=[];
@@ -35,8 +36,15 @@ export function parseConnector(g:Graph,w:Value,props:Map<number,Value>,id:string
  else if(type===0||type===1){
   const segments=items(field(w.body,'segments')).map(ref=>object(g,ref));
   if(segments.some(s=>!s||!Number.isFinite(number(field(s.body,'to-x'),NaN))||!Number.isFinite(number(field(s.body,'to-y'),NaN))))return;
-  // GetSegmentPoints uses intermediate ToPoints only. The last ToPoint is an
-  // endpoint cache, not another bend; appending the raw EndPoint creates a spur.
+  // A resolved port wins when a node moved. Without one, a diagonally
+  // inconsistent EndPoint is stale: use the saved terminal segment instead.
+  // Preserve collinear endpoint extensions used by free connectors.
+  const terminal=segments.at(-1);
+  if(!attachedEnd&&terminal){
+   const saved={x:number(field(terminal.body,'to-x')),y:number(field(terminal.body,'to-y'))};
+   if(saved.x!==end.x&&saved.y!==end.y){end.x=saved.x;end.y=saved.y;}
+  }
+  // Intermediate ToPoints are bends; the terminal ToPoint is handled above.
   for(const segment of segments.slice(0,-1)){const point={x:number(field(segment?.body,'to-x'),NaN),y:number(field(segment?.body,'to-y'),NaN)};if(!valid(point))return;points.push(point);}
   if(points.length>1){
    const horizontal=(segment:Value|undefined)=>number(field(segment?.body,'from-y'),NaN)===number(field(segment?.body,'to-y'),NaN);

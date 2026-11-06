@@ -1,6 +1,21 @@
 import assert from 'node:assert/strict';import {readFileSync,writeFileSync} from 'node:fs';import {resolve,join} from 'node:path';import {pathToFileURL} from 'node:url';import {chromium} from 'playwright-core';import {PNG} from 'pngjs';
 import {emitProject} from '../src/emit.ts';import {parseSemanticProject} from '../src/semantic.ts';import {instantiateMaster} from '../src/master.ts';import {flowCases,flowEndingCase,flowAttachmentCase} from '../tests/fixtures/flow.ts';import {flowStructure} from '../src/flow.ts';import type {Widget,Page} from '../src/model.ts';
+import {parseConnector} from '../src/connector.ts';import type {Graph,Value} from '../src/graph.ts';
 const project=parseSemanticProject(readFileSync('examples/hello.project.json','utf8')),cases=flowCases();
+// Original synthetic reproduction: the segment reaches the target while the
+// unresolved endpoint cache points far away. Exercise both emitted renderers.
+const value=(v:unknown):Value=>Array.isArray(v)?{tag:2,items:v.map(value)}:v!==null&&typeof v==='object'?{tag:1,entries:Object.entries(v).map(([k,v])=>[{tag:8,text:k},value(v)])}:{tag:3,value:v as number};
+const stale:Page={...cases.flowChain,id:'flow-stale-endpoints',name:'flow-stale-endpoints',file:'flow-stale-endpoints.html',widgets:[]};
+for(const type of [0,1]){
+ const y=100+type*160,id='stale-'+type;
+ const source:Widget={...structuredClone(cases.flowChain.widgets.find(w=>w.id==='start')!),id:id+'-source',x:40,y:y-44};
+ const target:Widget={...structuredClone(source),id:id+'-target',x:40,y:y+23};
+ const g={guids:[],objects:new Map([[1,{tag:9,body:value({'from-x':110,'from-y':y,'to-x':110,'to-y':y+23})}]])} as unknown as Graph;
+ const c=parseConnector(g,{tag:9,body:value({'connector-type':type,'end-point-x':700,'end-point-y':550,segments:[1]})},new Map([[101,value({X:110,Y:y})],[15,value(2)]]),id)!;
+ const {graphic,...geometry}=c;
+ const line:Widget={...structuredClone(source),...geometry,id,type:'Connector',css:{},content:[graphic],connection:{routing:type===0?'rounded':'orthogonal',start:{target:source.id},end:{target:target.id}}};
+ stale.widgets.push(line,source,target);
+}
 const status:Widget={...structuredClone(cases.flowChain.widgets.find(w=>w.id==='start')!),id:'status',name:'Status',x:30,y:530,width:300,height:40,css:{},content:[{kind:'text',css:{},paragraphs:[{css:{},runs:[{text:'ready',css:{}}]}]}]};
 for(const p of Object.values(cases)){
  for(const w of p.widgets.filter(w=>w.connection))w.behaviors=[{event:'click',actions:[{kind:'set-text',target:'status',expression:{kind:'literal',value:w.id}}]}];p.widgets.push(structuredClone(status));
@@ -8,7 +23,7 @@ for(const p of Object.values(cases)){
 const source=flowCases().flowChain.widgets;
 const copies:Page={...cases.flowChain,id:'flow-copies',name:'flow-copies',file:'flow-copies.html',width:1000,widgets:['left--','right--'].map((prefix,i):Widget=>({...status,id:prefix+'group',name:prefix,kind:'group',type:'ReferenceDiagramObject',x:i*500,y:0,width:440,height:300,css:{},content:[],children:instantiateMaster(source,prefix)}))};
 const endings=flowEndingCase();endings.widgets=['circle-left--','circle-right--'].map((prefix,i):Widget=>({...copies.widgets[0],id:prefix+'group',name:prefix,x:i*500,children:instantiateMaster(flowEndingCase().widgets,prefix)}));endings.width=1000;
-project.pages=[...Object.values(cases),copies,endings,flowAttachmentCase()];const out=resolve('output/flow-check');await emitProject(parseSemanticProject(JSON.stringify(project)),new Map(),out,'original-flow-fixtures.json');
+project.pages=[...Object.values(cases),copies,endings,flowAttachmentCase(),stale];const out=resolve('output/flow-check');await emitProject(parseSemanticProject(JSON.stringify(project)),new Map(),out,'original-flow-fixtures.json');
 const browser=await chromium.launch({executablePath:process.env.CHROME_PATH??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true}),results:unknown[]=[],errors:string[]=[];
 try{const tab=await browser.newPage({viewport:{width:1000,height:620}});tab.on('pageerror',e=>errors.push(e.message));for(const page of project.pages){const shots:Buffer[]=[];
  for(const renderer of ['','react']){

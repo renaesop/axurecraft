@@ -85,6 +85,8 @@ export interface VectorPath {
     dashArray?: string;
     markerStart?: string;
     markerEnd?: string;
+    /** Transparent interiors of outlined endpoint markers, in local SVG coordinates. */
+    markerHoles?: {x:number;y:number;radius:number}[];
 }
 export interface VectorGradient {
     id: string;
@@ -107,6 +109,10 @@ export interface VectorMarker {
     data: string;
     color: string;
     filled: boolean;
+    /** Fixed-size native endings use page units instead of multiplying by line width. */
+    viewport?: { width:number; height:number; refX:number; refY:number };
+    units?: 'strokeWidth' | 'userSpaceOnUse';
+    strokeWidth?: number;
 }
 export interface VectorGraphic {
     kind: 'vector';

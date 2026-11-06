@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';import {readFileSync,writeFileSync} from 'node:fs';import {resolve,join} from 'node:path';import {pathToFileURL} from 'node:url';import {chromium} from 'playwright-core';import {PNG} from 'pngjs';
-import {emitProject} from '../src/emit.ts';import {parseSemanticProject} from '../src/semantic.ts';import {instantiateMaster} from '../src/master.ts';import {flowCases} from '../tests/fixtures/flow.ts';import {flowStructure} from '../src/flow.ts';import type {Widget,Page} from '../src/model.ts';
+import {emitProject} from '../src/emit.ts';import {parseSemanticProject} from '../src/semantic.ts';import {instantiateMaster} from '../src/master.ts';import {flowCases,flowEndingCase} from '../tests/fixtures/flow.ts';import {flowStructure} from '../src/flow.ts';import type {Widget,Page} from '../src/model.ts';
 const project=parseSemanticProject(readFileSync('examples/hello.project.json','utf8')),cases=flowCases();
 const status:Widget={...structuredClone(cases.flowChain.widgets.find(w=>w.id==='start')!),id:'status',name:'Status',x:30,y:530,width:300,height:40,css:{},content:[{kind:'text',css:{},paragraphs:[{css:{},runs:[{text:'ready',css:{}}]}]}]};
 for(const p of Object.values(cases)){
@@ -7,7 +7,8 @@ for(const p of Object.values(cases)){
 }
 const source=flowCases().flowChain.widgets;
 const copies:Page={...cases.flowChain,id:'flow-copies',name:'flow-copies',file:'flow-copies.html',width:1000,widgets:['left--','right--'].map((prefix,i):Widget=>({...status,id:prefix+'group',name:prefix,kind:'group',type:'ReferenceDiagramObject',x:i*500,y:0,width:440,height:300,css:{},content:[],children:instantiateMaster(source,prefix)}))};
-project.pages=[...Object.values(cases),copies];const out=resolve('output/flow-check');await emitProject(parseSemanticProject(JSON.stringify(project)),new Map(),out,'original-flow-fixtures.json');
+const endings=flowEndingCase();endings.widgets=['circle-left--','circle-right--'].map((prefix,i):Widget=>({...copies.widgets[0],id:prefix+'group',name:prefix,x:i*500,children:instantiateMaster(flowEndingCase().widgets,prefix)}));endings.width=1000;
+project.pages=[...Object.values(cases),copies,endings];const out=resolve('output/flow-check');await emitProject(parseSemanticProject(JSON.stringify(project)),new Map(),out,'original-flow-fixtures.json');
 const browser=await chromium.launch({executablePath:process.env.CHROME_PATH??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true}),results:unknown[]=[],errors:string[]=[];
 try{const tab=await browser.newPage({viewport:{width:1000,height:620}});tab.on('pageerror',e=>errors.push(e.message));for(const page of project.pages){const shots:Buffer[]=[];
  for(const renderer of ['','react']){
@@ -22,6 +23,18 @@ try{const tab=await browser.newPage({viewport:{width:1000,height:620}});tab.on('
    await tab.mouse.click(230,82);assert.equal(await tab.locator('#status').textContent(),'start-process');await tab.mouse.click(370,170);assert.equal(await tab.locator('#status').textContent(),'process-end');
   }
   await tab.mouse.move(990,610);const shot=await tab.screenshot({path:join(out,page.id+'-'+(renderer||'html')+'.png')});shots.push(shot);
+  if(page.id==='flow-endings'){
+   const png=PNG.sync.read(shot),rgb=(x:number,y:number)=>[...png.data.subarray((y*png.width+x)*4,(y*png.width+x)*4+3)];
+   for(const dx of [0,500]){
+    assert.deepEqual(rgb(60+dx,80),[43,92,136],'filled circle center');
+    assert.deepEqual(rgb(220+dx,80),[247,247,247],'hollow ending does not show the shaft');
+    assert.deepEqual(rgb(340+dx,40),[247,247,247],'hollow start does not show the shaft');
+    assert.deepEqual(rgb(340+dx,180),[43,92,136],'filled vertical ending');
+    assert.deepEqual(rgb(223+dx,80),[43,92,136],'circle ring is visible');
+   }
+   assert.deepEqual(rgb(480,480),[247,247,247],'page background paints once');
+   assert.deepEqual(rgb(480,610),[247,247,247],'document background covers outside page bounds');
+  }
   if(page.id==='flow-chain'){
    const png=PNG.sync.read(shot);for(const [x,y]of [[230,82],[370,170]])assert.deepEqual([...png.data.subarray((y*png.width+x)*4,(y*png.width+x)*4+3)],[43,92,136],'straight line pixels');
    // Demonstrate this regression fixture detects the old zero-axis SVG sizing.

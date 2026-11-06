@@ -26,8 +26,21 @@ export function contentElements(content:WidgetContent):ElementNode[]{
       ])];
     }
     case 'vector':{
-      const defs:ElementNode[]=[...content.gradients.map(g=>element('linearGradient',{id:g.id,x1:g.from.x,y1:g.from.y,x2:g.to.x,y2:g.to.y},g.stops.map(s=>element('stop',{offset:s.offset,'stop-color':s.color,'stop-opacity':s.opacity})))),...content.markers.map(m=>element('marker',{id:m.id,markerWidth:6,markerHeight:6,refX:6,refY:3,viewBox:'0 0 6 6',orient:'auto-start-reverse',markerUnits:'strokeWidth'},[element('path',{d:m.data,fill:m.filled?m.color:'none',stroke:m.color,'stroke-width':1})]))];
-      const paths=content.paths.map(p=>element('path',{d:p.data,fill:p.fill,'fill-opacity':p.fillOpacity,...(p.stroke===undefined?{}:{stroke:p.stroke,'stroke-opacity':p.strokeOpacity,'stroke-width':p.strokeWidth,'stroke-linejoin':'miter','stroke-dasharray':p.dashArray,'marker-start':p.markerStart?`url(#${p.markerStart})`:undefined,'marker-end':p.markerEnd?`url(#${p.markerEnd})`:undefined})}));
+      const defs:ElementNode[]=[...content.gradients.map(g=>element('linearGradient',{id:g.id,x1:g.from.x,y1:g.from.y,x2:g.to.x,y2:g.to.y},g.stops.map(s=>element('stop',{offset:s.offset,'stop-color':s.color,'stop-opacity':s.opacity})))),...content.markers.map(m=>{
+        const v=m.viewport??{width:6,height:6,refX:6,refY:3};
+        return element('marker',{id:m.id,markerWidth:v.width,markerHeight:v.height,refX:v.refX,refY:v.refY,viewBox:`0 0 ${v.width} ${v.height}`,orient:'auto-start-reverse',markerUnits:m.units??'strokeWidth'},[element('path',{d:m.data,fill:m.filled?m.color:'none',stroke:m.color,'stroke-width':m.strokeWidth??1})]);
+      })];
+      const paths=content.paths.map((p,i)=>{
+        let clip:string|undefined;
+        if(p.markerHoles?.length&&(p.markerStart||p.markerEnd)){
+          const id=`${p.markerStart??p.markerEnd}-holes-${i}`;
+          const bleed=Math.max(1,p.strokeWidth??0,...content.markers.map(m=>(m.viewport?.width??6)*(m.units==='userSpaceOnUse'?1:p.strokeWidth??1)))*2;
+          const r=content.width+bleed,b=content.height+bleed;
+          const d=`M ${-bleed} ${-bleed} H ${r} V ${b} H ${-bleed} Z `+p.markerHoles.map(({x,y,radius:r})=>`M ${x+r} ${y} A ${r} ${r} 0 1 0 ${x-r} ${y} A ${r} ${r} 0 1 0 ${x+r} ${y} Z`).join(' ');
+          defs.push(element('clipPath',{id,clipPathUnits:'userSpaceOnUse'},[element('path',{d,'clip-rule':'evenodd'})]));clip=`url(#${id})`;
+        }
+        return element('path',{d:p.data,fill:p.fill,'fill-opacity':p.fillOpacity,'clip-path':clip,...(p.stroke===undefined?{}:{stroke:p.stroke,'stroke-opacity':p.strokeOpacity,'stroke-width':p.strokeWidth,'stroke-linejoin':'miter','stroke-dasharray':p.dashArray,'marker-start':p.markerStart?`url(#${p.markerStart})`:undefined,'marker-end':p.markerEnd?`url(#${p.markerEnd})`:undefined})});
+      });
       return [element('svg',{class:'ax-vector',xmlns:'http://www.w3.org/2000/svg',width:content.width,height:content.height,viewBox:`0 0 ${Math.max(content.width,0.001)} ${Math.max(content.height,0.001)}`,'aria-hidden':'true'},[...(defs.length?[element('defs',{},defs)]:[]),...paths],{position:'absolute',inset:'0',overflow:'visible','pointer-events':'none'})];
     }
     case 'control':{

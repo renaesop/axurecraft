@@ -93,7 +93,13 @@ export function linePattern(pattern:number,width:number):string|undefined {
   const patterns:Record<number,number[]>={2:[8,3],3:[5,3],4:[3,3],5:[5,3,1,3],6:[5,3,1,3,1,3],7:[8,3,3,3],8:[1,2]};
   return patterns[pattern]?.map(n=>fmt(n*Math.max(width,1))).join(' ');
 }
-export function marker(kind:number,id:string,color:string):VectorMarker|undefined {
+export function marker(kind:number,id:string,color:string,strokeWidth=1):VectorMarker|undefined {
+  // Native Arrowhead.OneArrowhead cases 18/19 are filled/outlined circles.
+  // OuterCircle uses radius 2.5 + BorderWidth/2; InnerCircle subtracts it.
+  if(kind===18||kind===19){
+    const size=5+strokeWidth,c=size/2;
+    return {id,data:`M ${fmt(c+2.5)} ${fmt(c)} A 2.5 2.5 0 1 0 ${fmt(c-2.5)} ${fmt(c)} A 2.5 2.5 0 1 0 ${fmt(c+2.5)} ${fmt(c)} Z`,color,filled:kind===18,viewport:{width:size,height:size,refX:c,refY:c},units:'userSpaceOnUse',strokeWidth};
+  }
   const paths:Record<number,string>={2:'M 0 0 L 6 3 L 0 6',3:'M 0 0 L 6 3 L 0 6 Z',4:'M 0 1 L 6 3 L 0 5 Z',5:'M 0 3 L 3 0 L 6 3 L 3 6 Z',6:'M 6 0 L 6 6'};
   return paths[kind]?{id,data:paths[kind],color,filled:[3,4,5].includes(kind)}:undefined;
 }
@@ -107,8 +113,8 @@ export function parseVector(widget:Value,props:Map<number,Value>,width:number,he
   const pattern=number(props.get(16),1),borderVisibility=number(props.get(80),15)&15;
   const strokeWidth=pattern===9||borderVisibility===0?0:Math.max(0,number(props.get(15),stroke.value==='none'?0:1));
   const lineEnds=props.get(17);
-  const startMarker=strokeWidth?marker(number(field(lineEnds,'Start'),1),`${id}-start`,stroke.value):undefined;
-  const endMarker=strokeWidth?marker(number(field(lineEnds,'End'),1),`${id}-end`,stroke.value):undefined;
+  const startMarker=strokeWidth?marker(number(field(lineEnds,'Start'),1),`${id}-start`,stroke.value,strokeWidth):undefined;
+  const endMarker=strokeWidth?marker(number(field(lineEnds,'End'),1),`${id}-end`,stroke.value,strokeWidth):undefined;
   let borderPath=d;
   const rectangle=nativePaths.length===1&&items(nativePaths[0]).length===4&&items(nativePaths[0]).every(anchor=>{
     const p=point(field(anchor,'Path'));

@@ -56,7 +56,10 @@ export interface RpContainer {
 export function parseStringTable(data: Buffer): InnerTable {
   need(data.length >= 32, 'short inner header');
   const words = Array.from({ length: 8 }, (_, i) => data.readUInt32LE(i * 4));
-  need(words[0] === 27 && words[1] === 9 && words[5] === 0xc351 && words[6] === 31, 'unsupported inner header');
+  // An RP9 container can retain RP8 records (for example untouched CSV/print
+  // configurations). They use the same string-table framing and payload tags.
+  // The outer container is still required to be RP9; legacy ZIP files are not accepted.
+  need(words[0] === 27 && (words[1] === 8 || words[1] === 9) && words[5] === 0xc351 && words[6] === 31, 'unsupported inner header');
   need(words[7] <= 100000 && words[7] <= Math.floor((data.length - 32) / 4), 'invalid string count');
   let offset = 32;
   const strings: string[] = [];

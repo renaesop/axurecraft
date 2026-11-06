@@ -43,6 +43,10 @@ export function parseConnector(g:Graph,w:Value,props:Map<number,Value>,id:string
   d+=` L ${xy(local(point))}`;
  }
  const stroke=paint(props.get(8),id+'-stroke'),pattern=number(props.get(16),1),strokeWidth=pattern===9?0:Math.max(0,number(props.get(15),1));
- const ends=props.get(17),a=strokeWidth?marker(number(field(ends,'Start'),1),id+'-start',stroke.value):undefined,b=strokeWidth?marker(number(field(ends,'End'),1),id+'-end',stroke.value):undefined;
- return {x,y,width,height,graphic:{kind:'vector',width:Math.max(1,width),height:Math.max(1,height),paths:[{data:d,fill:'none',fillOpacity:1,stroke:stroke.value,strokeWidth,strokeOpacity:stroke.opacity,dashArray:linePattern(pattern,strokeWidth),markerStart:a?.id,markerEnd:b?.id}],gradients:[stroke.gradient].filter((v):v is VectorGradient=>!!v),markers:[a,b].filter((v):v is VectorMarker=>!!v)}};
+ const ends=props.get(17),startKind=number(field(ends,'Start'),1),endKind=number(field(ends,'End'),1);
+ const a=strokeWidth?marker(startKind,id+'-start',stroke.value,strokeWidth):undefined,b=strokeWidth?marker(endKind,id+'-end',stroke.value,strokeWidth):undefined;
+ // Keep the saved path and marker centers intact. Clip only the hollow interior,
+ // so the shaft cannot show through it, even on translucent/image backgrounds.
+ const radius=2.5-strokeWidth/2,holes=strokeWidth&&radius>0?[...(startKind===19?[{...local(start),radius}]:[]),...(endKind===19?[{...local(end),radius}]:[])]:[];
+ return {x,y,width,height,graphic:{kind:'vector',width:Math.max(1,width),height:Math.max(1,height),paths:[{data:d,fill:'none',fillOpacity:1,stroke:stroke.value,strokeWidth,strokeOpacity:stroke.opacity,dashArray:linePattern(pattern,strokeWidth),markerStart:a?.id,markerEnd:b?.id,...(holes.length?{markerHoles:holes}:{})}],gradients:[stroke.gradient].filter((v):v is VectorGradient=>!!v),markers:[a,b].filter((v):v is VectorMarker=>!!v)}};
 }

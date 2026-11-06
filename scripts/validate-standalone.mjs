@@ -13,6 +13,13 @@ const run=args=>{
 };
 try{
   cpSync(source,isolated,{recursive:true,filter:path=>basename(path)!=='node_modules'});
+  writeFileSync(join(isolated,'source','custom-css-check.tsx'),`import type { ComponentProps } from 'react';
+import { RpWidget } from './runtime';
+type Style = ComponentProps<typeof RpWidget>['style'];
+export const frame: Style = { '--rp-image-border-width': '2px', '--rp-cell-right-width': 1, color: 'red' };
+// @ts-expect-error Custom-property support must not allow misspelled ordinary CSS.
+export const typo: Style = { backgrounColor: 'red' };
+`);
   run(['install','--ignore-scripts','--no-audit','--no-fund']);
   run(['run','build']);
   run(['run','typecheck']);

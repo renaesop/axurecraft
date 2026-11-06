@@ -113,9 +113,12 @@ Line / Button / DropList 等兼容分支与上述对象的专属行为仍需补�
 
 ## 可复现检查
 
+新增两份公开 RP9 连线样本，累计检查 237 个控件、35 条连线。修复 RP9 容器内旧配置记录的解析、29 个空心圆端点缺失、React 半透明背景叠加，以及图片边框 CSS 变量导致导出 TSX 类型检查失败的问题；两份导出工程均通过独立安装、构建和类型检查。公开测试 76 项，本地语料 41 项，共 117 项。8 组 HTML/React 截图对照中 7 组完全一致，1 组有 3 个单色阶差异像素，详见[样本与复现报告](flow-samples.md)。这两份静态示意稿不包含控件交互，尚无同文件原生 HTML 基准。
+
 ```bash
 npm run test:tables
 npm run test:flow
+npm run test:flow-samples -- --download
 npm run audit:structure
 npm run audit:controls -- output/control-audit.json project.rp library.rplib
 ```

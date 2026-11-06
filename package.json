@@ -54,6 +54,7 @@
     "test:panel-sequences": "tsx scripts/validate-panel-sequences.ts",
     "test:rich-text": "tsx scripts/validate-rich-text.ts",
     "test:flow": "tsx scripts/validate-flow.ts",
+    "test:flow-samples": "tsx scripts/validate-flow-samples.ts",
     "audit:structure": "tsx scripts/audit-structure.ts"
   },
   "devDependencies": {

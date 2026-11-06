@@ -11,13 +11,19 @@ function node(id:string,x:number,y:number,label:string,shape:'box'|'end'|'decisi
  return w;
 }
 interface End extends Point {target?:string}
-function edge(id:string,start:End,end:End,routing:ConnectorInfo['routing']='straight',points:Point[]=[],label='',double=false,dash=false):Widget {
+function edge(id:string,start:End,end:End,routing:ConnectorInfo['routing']='straight',points:Point[]=[],label='',double=false,dash=false,endings={Start:double?3:1,End:3}):Widget {
  const type=['rounded','orthogonal','straight','curve'].indexOf(routing),objects=new Map<number,Value>();points.forEach((p,i)=>objects.set(i+1,{tag:9,body:value({'to-x':p.x,'to-y':p.y})}));
  const raw:Value={tag:9,body:value({'end-point-x':end.x,'end-point-y':end.y,'connector-type':type,segments:points.map((_,i)=>i+1),'control-points':routing==='curve'?[{LowerHandle:{X:points[0]?.x,Y:points[0]?.y},HigherHandle:{X:points[1]?.x,Y:points[1]?.y}}]:[]})};
- const geometry=parseConnector({objects} as Graph,raw,new Map([[101,value({X:start.x,Y:start.y})],[8,value({'fill-type':'solid','fill-color':0xff2b5c88})],[15,value(2)],[16,value(dash?2:1)],[17,value({Start:double?3:1,End:3})]]),id)!;
+ const geometry=parseConnector({objects} as Graph,raw,new Map([[101,value({X:start.x,Y:start.y})],[8,value({'fill-type':'solid','fill-color':0xff2b5c88})],[15,value(2)],[16,value(dash?2:1)],[17,value(endings)]]),id)!;
  const w=widget(id,geometry.x,geometry.y,geometry.width,geometry.height);w.type='Connector';w.connection={routing,start:start.target?{target:start.target}:{},end:end.target?{target:end.target}:{}};w.content=[geometry.graphic];if(label){w.name=label;w.content.push(text(label));}return w;
 }
 const page=(id:string,widgets:Widget[]):Page=>({id,name:id,file:id+'.html',width:760,height:600,background:'#fff',behaviors:[],widgets});
+export function flowEndingCase():Page {
+ return {...page('flow-endings',[
+  edge('horizontal-circles',{x:60.5,y:80.5},{x:220.5,y:80.5},'straight',[],'',false,false,{Start:18,End:19}),
+  edge('vertical-circles',{x:340.5,y:40.5},{x:340.5,y:180.5},'straight',[],'',false,false,{Start:19,End:18}),
+ ]),background:'rgba(242,242,242,0.6)'};
+}
 export function flowCases():Record<string,Page> {
  const start=node('start',40,60,'Start','end'),process=node('process',300,60,'Process'),end=node('end',300,230,'End','end');
  const chain=page('flow-chain',[edge('start-process',{x:180,y:82,target:'start'},{x:300,y:82,target:'process'}),edge('process-end',{x:370,y:104,target:'process'},{x:370,y:230,target:'end'}),start,process,end]);

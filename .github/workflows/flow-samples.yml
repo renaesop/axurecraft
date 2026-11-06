@@ -1,0 +1,50 @@
+name: Public RP9 flow samples
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flow-samples-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flow-samples:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Install locked Chromium and system dependencies
+        run: |
+          npx --no-install playwright-core install --with-deps chromium
+          node --input-type=module -e 'import {appendFileSync} from "node:fs"; import {chromium} from "playwright-core"; appendFileSync(process.env.GITHUB_ENV, `CHROME_PATH=${chromium.executablePath()}\n`);'
+      - name: Download pinned forum samples and verify conversion and rendering
+        run: npm run test:flow-samples -- --download
+      - name: Build both exported projects outside the repository
+        run: |
+          npm run test:standalone -- output/flow-samples/connector-lines/react
+          cp output/standalone-validation.json output/flow-samples/connector-lines/standalone-validation.json
+          npm run test:standalone -- output/flow-samples/connector-zoom/react
+          cp output/standalone-validation.json output/flow-samples/connector-zoom/standalone-validation.json
+      - name: Upload reports and screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: flow-sample-reports
+          path: |
+            output/flow-samples/**/validation.json
+            output/flow-samples/**/conversion-report.json
+            output/flow-samples/**/standalone-validation.json
+            output/flow-samples/**/*.png
+            output/standalone-validation.json
+          if-no-files-found: warn
+          retention-days: 14

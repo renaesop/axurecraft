@@ -1,0 +1,18 @@
+[
+  {
+    "name": "connector-lines",
+    "title": "Axure9_ConnectorLines_Bug-01.rp",
+    "source": "https://forum.axure.com/t/bug-connector-line-issues/63835",
+    "url": "https://d2d2wdgkcw7kfa.cloudfront.net/original/3X/4/3/4379c6c44b2eca8d98cb981e53a256550e82f4a6.rp",
+    "sha256": "ea9cd4bfade1ea431c97f674ce71da6f62ec0e583ad71bdbdc04726cda5c29c9",
+    "expected": { "widgets": 62, "nodes": 27, "connectors": 29, "markers": 29, "hollowCircles": 29, "freeEnds": 16, "roundTrips": 42 }
+  },
+  {
+    "name": "connector-zoom",
+    "title": "1.rp — Connector tool bugs in the latest update",
+    "source": "https://forum.axure.com/t/connector-tool-bugs-in-the-latest-update/56065",
+    "url": "https://axure-discourse.s3.amazonaws.com/original/3X/2/b/2b712247d8c65e6b129c7cd67bf40d4b8fb263fa.rp",
+    "sha256": "ea584f52d89028a885cf632ebd99e5f873413db750c1a98558bbad6187ba42b7",
+    "expected": { "widgets": 175, "nodes": 12, "connectors": 6, "markers": 6, "hollowCircles": 0, "freeEnds": 0, "roundTrips": 18 }
+  }
+]

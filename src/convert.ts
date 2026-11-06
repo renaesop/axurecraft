@@ -126,6 +126,7 @@ export function convertRp9(data:Buffer):Conversion {
       for(const key of Object.keys(css))if(key.startsWith('padding')||key==='justify-content')delete css[key];
       if(!bool(field(w.body,'VisibleFromSettings'),true))css.display='none';
       const widget:Widget={id:prefix+idFor(g,w),type,name:str(field(field(w.body,'name-block'),'text')),x,y,width,height,css,content:[],source:sourceRef(g,w),kind:'unsupported',behaviors:readBehaviors(g,w,pageByGuid,issues,!!templateImages||type==='Repeater',variables,asset,contexts.get(g))};
+      let connectorTextCss:Record<string,string>|undefined;
       if(bool(field(w.body,'Disabled')))widget.disabled=true;
       if(props.has(P.PLACED)&&number(props.get(P.PLACED),1)===0)css.display='none';
       const paragraphs=items(field(field(field(w.body,'RichTextBlock'),'attributed-string'),'Paragraphs'));
@@ -247,7 +248,11 @@ export function convertRp9(data:Buffer):Conversion {
       }else if(type==='Connector'){
         widget.kind='shape';const connector=parseConnector(g,w,props,widget.id,target=>new Map([...resolveStyle(g,target,doc),...adaptiveStyle(g,target,viewChain)]));
         if(connector){
-          const {graphic,...geometry}=connector;Object.assign(widget,geometry);widget.css={...css,background:'transparent',border:'0'};widget.content.push(graphic);widget.connection=connectorInfo(g,w,prefix);
+          const {graphic,labelPoint,...geometry}=connector;Object.assign(widget,geometry);widget.css={...css,background:'transparent',border:'0'};widget.content.push(graphic);widget.connection=connectorInfo(g,w,prefix);
+          // RP9's text panel is 100 x 20, centered on the routed label point.
+          connectorTextCss={left:`${labelPoint.x-50}px`,top:`${labelPoint.y-10}px`,right:'auto',bottom:'auto',width:'100px',height:'20px'};
+          const label=richText(w,props,undefined,textOverrides,g);
+          if(label?.paragraphs.some(p=>p.runs.some(r=>r.text.length))){label.css={...label.css,...connectorTextCss};widget.content.push(label);}
           for(const side of ['start','end'] as const){const target=widget.connection[side].target;if(target&&!contexts.get(g)?.references?.has(target.slice(prefix.length+2)))issues.push({widget:widget.id,feature:'connector-reference',detail:`Unresolved ${side} node: ${target}`});}
         }
         else issues.push({widget:widget.id,feature:'connector',detail:'Connector geometry is incomplete'});
@@ -369,7 +374,7 @@ export function convertRp9(data:Buffer):Conversion {
           const runKeys=['color','font-family','font-size','font-weight','font-style','letter-spacing','text-decoration','text-transform'];
           const applyText=(text:RichText):void=>{
             const refreshed=richText(w,merged,undefined,textOverrides,g);
-            if(refreshed)text.css=refreshed.css;
+            if(refreshed)text.css={...refreshed.css,...connectorTextCss};
             for(const paragraph of text.paragraphs){
               for(const key of ['text-align','line-height'])if(textCss[key]!==undefined)paragraph.css[key]=textCss[key];
               for(const run of paragraph.runs)for(const key of runKeys)if(textCss[key]!==undefined)run.css[key]=textCss[key];

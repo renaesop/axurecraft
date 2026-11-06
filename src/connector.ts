@@ -20,7 +20,7 @@ export function connectorInfo(g:Graph,w:Value,prefix=''):ConnectorInfo {
  return {routing:type,start:endpoint('start'),end:endpoint('end')};
 }
 /** Connectors use absolute segment/control-point coordinates, unlike VectorShape's normalized paths. */
-export function parseConnector(g:Graph,w:Value,props:Map<number,Value>,id:string,targetStyle=(target:Value)=>resolveStyle(g,target)):{x:number;y:number;width:number;height:number;graphic:VectorGraphic}|undefined {
+export function parseConnector(g:Graph,w:Value,props:Map<number,Value>,id:string,targetStyle=(target:Value)=>resolveStyle(g,target)):{x:number;y:number;width:number;height:number;graphic:VectorGraphic;labelPoint:Point}|undefined {
  const type=number(field(w.body,'connector-type'),2);if(!routing[type])return;
  const info=connectorInfo(g,w);
  const endpoint=(side:'start'|'end',stored:Point):Point=>{
@@ -54,6 +54,25 @@ export function parseConnector(g:Graph,w:Value,props:Map<number,Value>,id:string
  if(points.at(-1)!.x!==end.x||points.at(-1)!.y!==end.y)points.push(end);
  const bounds=[...points,...handles],x=Math.min(...bounds.map(p=>p.x)),y=Math.min(...bounds.map(p=>p.y)),width=Math.max(...bounds.map(p=>p.x))-x,height=Math.max(...bounds.map(p=>p.y))-y;
  const local=(p:Point)=>({x:p.x-x,y:p.y-y});
+ // RP9 Connector.GetMiddlePoint uses the unrounded segment chain, not its
+ // bounding box. Curves use the saved AxBezierPoint.PathPoint.
+ let center:Point;
+ if(type===3){
+  const saved=at(field(control,'PathPoint'));
+  center=valid(saved)?saved:{x:(start.x+3*handles[0].x+3*handles[1].x+end.x)/8,y:(start.y+3*handles[0].y+3*handles[1].y+end.y)/8};
+ }else if(type===2){
+  const round=(n:number)=>Math.sign(n)*Math.round(Math.abs(n));
+  center={x:round((start.x+end.x)/2),y:round((start.y+end.y)/2)};
+ }else{
+  const lengths=points.slice(1).map((p,i)=>Math.hypot(p.x-points[i].x,p.y-points[i].y));
+  let remaining=lengths.reduce((sum,n)=>sum+n,0)/2;
+  center=start;
+  for(let i=0;i<lengths.length;i++){
+   const length=lengths[i];if(length===0)continue;
+   if(remaining<=length){const a=points[i],b=points[i+1],t=remaining/length;center={x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t};break;}
+   remaining-=length;
+  }
+ }
  let d=`M ${xy(local(start))}`;
  if(type===3)d+=` C ${xy(local(handles[0]))} ${xy(local(handles[1]))} ${xy(local(end))}`;
  else for(let i=1;i<points.length;i++){
@@ -73,5 +92,5 @@ export function parseConnector(g:Graph,w:Value,props:Map<number,Value>,id:string
  // Keep the saved path and marker centers intact. Clip only the hollow interior,
  // so the shaft cannot show through it, even on translucent/image backgrounds.
  const radius=2.5-strokeWidth/2,holes=strokeWidth&&radius>0?[...(startKind===19?[{...local(start),radius}]:[]),...(endKind===19?[{...local(end),radius}]:[])]:[];
- return {x,y,width,height,graphic:{kind:'vector',width:Math.max(1,width),height:Math.max(1,height),preserveAspectRatio:'none',paths:[{data:d,fill:'none',fillOpacity:1,stroke:stroke.value,strokeWidth,strokeOpacity:stroke.opacity,dashArray:linePattern(pattern,strokeWidth),markerStart:a?.id,markerEnd:b?.id,...(holes.length?{markerHoles:holes}:{})}],gradients:[stroke.gradient].filter((v):v is VectorGradient=>!!v),markers:[a,b].filter((v):v is VectorMarker=>!!v)}};
+ return {x,y,width,height,labelPoint:local(center),graphic:{kind:'vector',width:Math.max(1,width),height:Math.max(1,height),preserveAspectRatio:'none',paths:[{data:d,fill:'none',fillOpacity:1,stroke:stroke.value,strokeWidth,strokeOpacity:stroke.opacity,dashArray:linePattern(pattern,strokeWidth),markerStart:a?.id,markerEnd:b?.id,...(holes.length?{markerHoles:holes}:{})}],gradients:[stroke.gradient].filter((v):v is VectorGradient=>!!v),markers:[a,b].filter((v):v is VectorMarker=>!!v)}};
 }

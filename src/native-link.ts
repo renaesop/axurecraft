@@ -9,8 +9,10 @@ export function readLinkTarget(g:Graph,owner:Value,dest:Value|undefined,pageByGu
   if(kind===3)return {kind:'back'};
   if(kind===1){
     const index=field(dest?.body,'target-page-id')?.values?.[1];
-    const file=typeof index==='number'?pageByGuid.get(g.guids[index-1]):undefined;
-    if(!file)throw new Error('Target page could not be resolved');
+    const guid=typeof index==='number'?g.guids[index-1]:undefined;
+    if(guid==='00000000000000000000000000000000')throw new Error('Link target page is not set');
+    const file=guid?pageByGuid.get(guid):undefined;
+    if(!file)throw new Error(`Target page could not be resolved${guid?`: ${guid}`:''}`);
     return {kind:'link',value:file,includeVariables:true};
   }
   if(kind!==0)throw new Error(`Unknown navigation kind ${kind}`);

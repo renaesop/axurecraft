@@ -1,3 +1,4 @@
+import {readPageTree} from './page-directory.ts';
 import {nativeParagraphCss} from './native-rich-text.ts';
 import {snapshotSurface,applySnapshotActions} from './snapshot.ts';
 import {nativeBackground} from './native-background.ts';
@@ -438,8 +439,9 @@ export function convertRp9(data:Buffer):Conversion {
     }
     return page;
   });
+  const pageTree=readPageTree(doc,pages,issues);
   const deduplicated=[...new Map(issues.map(issue=>[JSON.stringify(issue),issue])).values()];issues.splice(0,issues.length,...deduplicated);
   const rendered=pages.flatMap(p=>flattenWidgets(materializeWidgets(p.widgets)));
   widgetCount=rendered.length;panelCount=rendered.filter(w=>w.kind==='panel').length;repeaterCount=rendered.filter(w=>w.kind==='repeater').length;
-  return {project:{schema:'axure-semantic',schemaVersion:2,sourceSha256:source.sha256,variables,pages,issues,stats:{pages:pages.length,widgets:widgetCount,panels:panelCount,repeaters:repeaterCount,assets:assets.size,issues:issues.length}},assets};
+  return {project:{schema:'axure-semantic',schemaVersion:2,sourceSha256:source.sha256,variables,pages,...(pageTree?{pageTree}:{}),issues,stats:{pages:pages.length,widgets:widgetCount,panels:panelCount,repeaters:repeaterCount,assets:assets.size,issues:issues.length}},assets};
 }

@@ -330,6 +330,12 @@ export interface GlobalVariable {
     /** Identity in the source RP, used to resolve aliases after variable renames. */
     sourceGuid?: string;
 }
+export interface PageTreeNode {
+    id: string;
+    name: string;
+    pageId?: string;
+    children: PageTreeNode[];
+}
 /** Version 2 uses executable repeater templates instead of expanded initial rows. */
 export interface Project {
     schema: 'axure-semantic';
@@ -337,6 +343,7 @@ export interface Project {
     sourceSha256: string;
     variables?: GlobalVariable[];
     pages: Page[];
+    pageTree?: PageTreeNode[];
     issues: ConversionIssue[];
     stats: Record<string, number>;
 }

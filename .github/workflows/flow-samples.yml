@@ -29,12 +29,14 @@ jobs:
           node --input-type=module -e 'import {appendFileSync} from "node:fs"; import {chromium} from "playwright-core"; appendFileSync(process.env.GITHUB_ENV, `CHROME_PATH=${chromium.executablePath()}\n`);'
       - name: Download pinned forum samples and verify conversion and rendering
         run: npm run test:flow-samples -- --download
-      - name: Build both exported projects outside the repository
+      - name: Build all exported projects outside the repository
         run: |
           npm run test:standalone -- output/flow-samples/connector-lines/react
           cp output/standalone-validation.json output/flow-samples/connector-lines/standalone-validation.json
           npm run test:standalone -- output/flow-samples/connector-zoom/react
           cp output/standalone-validation.json output/flow-samples/connector-zoom/standalone-validation.json
+          npm run test:standalone -- output/flow-samples/connector-move/react
+          cp output/standalone-validation.json output/flow-samples/connector-move/standalone-validation.json
       - name: Upload reports and screenshots
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

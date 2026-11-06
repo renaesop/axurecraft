@@ -8,7 +8,9 @@ import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright-core';
 import {PNG} from 'pngjs';
 import {convertRp9} from '../src/convert.ts';
-import {parseProject} from '../src/graph.ts';
+import {parseProject,field,number} from '../src/graph.ts';
+import {connectorPort,connectorPoint} from '../src/connector-point.ts';
+import {resolveStyle,P} from '../src/styles.ts';
 import {parseRp9Payload,encodeRp9Payload} from '../src/parser/rp9-payload.ts';
 import {flowStructure} from '../src/flow.ts';
 import {flattenWidgets} from '../src/repeater-model.ts';
@@ -22,7 +24,9 @@ const samples:Sample[]=JSON.parse(readFileSync('examples/flow-samples.json','utf
 const args=process.argv.slice(2),download=args.includes('--download');
 const input=resolve(args.find(a=>a!=='--download')??'research/flow-samples'),out=resolve('output/flow-samples');
 mkdirSync(input,{recursive:true});mkdirSync(out,{recursive:true});
-const browser=await chromium.launch({executablePath:process.env.CHROME_PATH??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
+// Embedded SVG images can rasterize differently on the macOS GPU between
+// initial HTML parsing and React insertion. Keep screenshot rasterization fixed.
+const browser=await chromium.launch({executablePath:process.env.CHROME_PATH??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true,args:['--disable-gpu']});
 const reports:unknown[]=[],errors:string[]=[];
 try {
   for(const sample of samples){
@@ -45,9 +49,23 @@ try {
     const {project,assets}=convertRp9(bytes);assert.deepEqual(project.issues,[]);assert.equal(project.pages.length,1);
     const page=project.pages[0],widgets=flattenWidgets(page.widgets),connectors=widgets.filter(w=>w.connection),flow=flowStructure(page.widgets);
     const vectors=connectors.flatMap(w=>w.content.filter(c=>c.kind==='vector'));
+    const doc=native.graphs.find(g=>g.className==='Axure:DesignDocument');
+    const probes=connectors.flatMap(w=>{
+      const g=native.graphs.find(g=>g.record.index===w.source.record)!;
+      const raw=g.objects.get(w.source.objectId)!,props=resolveStyle(g,raw,doc);
+      return (['start','end'] as const).flatMap(side=>{
+        const end=w.connection![side];if(!end.target)return [];
+        const target=g.objects.get(number(field(raw.body,side+'-diagram-object')))!;
+        const port=connectorPort(g,target,end.port!),point=connectorPoint(g,target,end.port!,resolveStyle(g,target,doc));
+        assert.ok(port&&point,`${sample.name} ${w.id} ${side}: unresolved port`);
+        const saved=side==='start'?{x:number(field(props.get(P.LOCATION),'X')),y:number(field(props.get(P.LOCATION),'Y'))}:{x:number(field(raw.body,'end-point-x')),y:number(field(raw.body,'end-point-y'))};
+        return [{connector:w.id,side,target:end.target,port,cacheDistance:Math.hypot(saved.x-point.x,saved.y-point.y)}];
+      });
+    });
     assert.equal(nativeConnectors,sample.expected.connectors);assert.equal(connectors.length,nativeConnectors);
     assert.equal(widgets.length,sample.expected.widgets);assert.equal(flow.nodes.length,sample.expected.nodes);
     assert.deepEqual(flow.danglingTargets,[]);assert.equal(flow.missingMetadata,0);assert.equal(flow.unattachedEnds,sample.expected.freeEnds);
+    assert.equal(probes.length,nativeConnectors*2-sample.expected.freeEnds,'every attached endpoint is checked');
     assert.equal(roundTrips,sample.expected.roundTrips);
     assert.equal(vectors.reduce((n,v)=>n+v.markers.length,0),sample.expected.markers);
     assert.equal(vectors.flatMap(v=>v.markers).filter(m=>m.units==='userSpaceOnUse'&&!m.filled).length,sample.expected.hollowCircles);
@@ -58,10 +76,21 @@ try {
       try {
         const tab=await context.newPage();tab.on('pageerror',e=>errors.push(e.message));
         for(const zoom of [1,1.1]){
-          const shots:Buffer[]=[];
+          const shots:Buffer[]=[],endpointChecks:unknown[]=[];
           for(const renderer of ['','react']){
             await tab.goto(pathToFileURL(join(destination,renderer,page.file)).href,{waitUntil:'networkidle'});
             await tab.evaluate(z=>{document.documentElement.style.zoom=String(z);},zoom);
+            const ends=await tab.evaluate(({probes,zoom})=>probes.map(probe=>{
+              const target=document.getElementById(probe.target)!,rect=target.getBoundingClientRect(),style=getComputedStyle(target),matrix=new DOMMatrix(style.transform==='none'?undefined:style.transform);
+              const dx=(probe.port.x-.5)*parseFloat(style.width),dy=(probe.port.y-.5)*parseFloat(style.height);
+              const expected={x:rect.x+rect.width/2+(matrix.a*dx+matrix.c*dy)*zoom,y:rect.y+rect.height/2+(matrix.b*dx+matrix.d*dy)*zoom};
+              const path=document.getElementById(probe.connector)!.querySelector<SVGPathElement>('svg > path')!,point=path.getPointAtLength(probe.side==='start'?0:path.getTotalLength()).matrixTransform(path.getScreenCTM()!);
+              return {connector:probe.connector,side:probe.side,target:probe.target,expected,actual:{x:point.x,y:point.y},distance:Math.hypot(point.x-expected.x,point.y-expected.y)/zoom};
+            }),{probes,zoom});
+            // Native endpoints round each page coordinate to an integer. The
+            // geometric port can therefore be up to sqrt(.5² + .5²) away.
+            for(const end of ends)assert.ok(end.distance<=Math.SQRT1_2+.05,`${sample.name}/${renderer||'html'} ${end.connector} ${end.side}: ${end.distance}px gap`);
+            endpointChecks.push({renderer:renderer||'html',checked:ends.length,maxDistance:Math.max(0,...ends.map(e=>e.distance)),endpoints:ends});
             const lines=await tab.locator('[data-kind="Connector"] > svg').evaluateAll(es=>es.map(e=>{
               const svg=e as SVGSVGElement,rect=svg.getBoundingClientRect(),p=svg.querySelector<SVGPathElement>(':scope > path')!,matrix=p.getScreenCTM()!;
               const rgb=getComputedStyle(p).stroke.match(/[\d.]+/g)!.slice(0,3).map(Number);
@@ -104,14 +133,14 @@ try {
           // rasterized shadow edges; larger differences always fail this check.
           assert.equal(significantPixels,0,`${sample.name} zoom ${zoom}, DPR ${dpr}`);
           assert.ok(differentPixels<=64,`${sample.name}: excessive rounding differences`);
-          comparisons.push({zoom,deviceScaleFactor:dpr,width:a.width,height:a.height,differentPixels,significantPixels,maxChannelDelta,paintedConnectors:nativeConnectors});
+          comparisons.push({zoom,deviceScaleFactor:dpr,width:a.width,height:a.height,differentPixels,significantPixels,maxChannelDelta,paintedConnectors:nativeConnectors,endpointChecks});
         }
       } finally {await context.close();}
     }
-    const report={name:sample.name,source:sample.source,sha256:sample.sha256,stats:project.stats,roundTrips,legacyRecords:native.records.filter(r=>r.inner?.words[1]===8).length,flow,authoredBehaviorWidgets:widgets.filter(w=>w.behaviors.length).length,comparisons};
+    const report={name:sample.name,source:sample.source,sha256:sample.sha256,stats:project.stats,roundTrips,legacyRecords:native.records.filter(r=>r.inner?.words[1]===8).length,flow,reattachedEndpoints:probes.filter(p=>p.cacheDistance>1e-6),authoredBehaviorWidgets:widgets.filter(w=>w.behaviors.length).length,comparisons};
     reports.push(report);writeFileSync(join(destination,'validation.json'),JSON.stringify(report,null,2));
     console.log({name:sample.name,widgets:widgets.length,connectors:nativeConnectors,roundTrips,comparisons});
   }
   assert.deepEqual(errors,[]);
-  writeFileSync(join(out,'validation.json'),JSON.stringify({note:'Two converted renderers. CSS zoom and device scale are tested separately; no paired native HTML is available.',reports,errors},null,2));
+  writeFileSync(join(out,'validation.json'),JSON.stringify({note:'Two converted renderers with GPU rasterization disabled. CSS zoom and device scale are tested separately; no paired native HTML is available.',reports,errors},null,2));
 } finally {await browser.close();}

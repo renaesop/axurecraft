@@ -12,12 +12,30 @@ function node(id:string,x:number,y:number,label:string,shape:'box'|'end'|'decisi
 }
 interface End extends Point {target?:string}
 function edge(id:string,start:End,end:End,routing:ConnectorInfo['routing']='straight',points:Point[]=[],label='',double=false,dash=false,endings={Start:double?3:1,End:3}):Widget {
- const type=['rounded','orthogonal','straight','curve'].indexOf(routing),objects=new Map<number,Value>();points.forEach((p,i)=>objects.set(i+1,{tag:9,body:value({'to-x':p.x,'to-y':p.y})}));
- const raw:Value={tag:9,body:value({'end-point-x':end.x,'end-point-y':end.y,'connector-type':type,segments:points.map((_,i)=>i+1),'control-points':routing==='curve'?[{LowerHandle:{X:points[0]?.x,Y:points[0]?.y},HigherHandle:{X:points[1]?.x,Y:points[1]?.y}}]:[]})};
- const geometry=parseConnector({objects} as Graph,raw,new Map([[101,value({X:start.x,Y:start.y})],[8,value({'fill-type':'solid','fill-color':0xff2b5c88})],[15,value(2)],[16,value(dash?2:1)],[17,value(endings)]]),id)!;
+ const type=['rounded','orthogonal','straight','curve'].indexOf(routing),objects=new Map<number,Value>(),segments=[...points,end];segments.forEach((p,i)=>{const from=i?points[i-1]:start;objects.set(i+1,{tag:9,body:value({'from-x':from.x,'from-y':from.y,'to-x':p.x,'to-y':p.y})});});
+ const raw:Value={tag:9,body:value({'end-point-x':end.x,'end-point-y':end.y,'connector-type':type,segments:segments.map((_,i)=>i+1),'control-points':routing==='curve'?[{LowerHandle:{X:points[0]?.x,Y:points[0]?.y},HigherHandle:{X:points[1]?.x,Y:points[1]?.y}}]:[]})};
+ const geometry=parseConnector({objects,guids:[]} as unknown as Graph,raw,new Map([[101,value({X:start.x,Y:start.y})],[8,value({'fill-type':'solid','fill-color':0xff2b5c88})],[15,value(2)],[16,value(dash?2:1)],[17,value(endings)]]),id)!;
  const w=widget(id,geometry.x,geometry.y,geometry.width,geometry.height);w.type='Connector';w.connection={routing,start:start.target?{target:start.target}:{},end:end.target?{target:end.target}:{}};w.content=[geometry.graphic];if(label){w.name=label;w.content.push(text(label));}return w;
 }
 const page=(id:string,widgets:Widget[]):Page=>({id,name:id,file:id+'.html',width:760,height:600,background:'#fff',behaviors:[],widgets});
+/** Original fixture reproducing the stale endpoint cache found in a public RP9. */
+export function flowAttachmentCase():Page {
+ const a=node('source',40,300,'Source'),b=node('target',400,20,'Target');
+ const g={guids:['source','target','a70aa02f1f4bdc499321e356041b831c','a70aa03f1f4bdc499321e356041b831c'],objects:new Map<number,Value>([
+  [1,{tag:9,body:value({})}],[2,{tag:9,body:value({})}],
+  [5,{tag:9,body:value({'from-x':180,'from-y':322,'to-x':470,'to-y':322})}],
+  [6,{tag:9,body:value({'from-x':470,'from-y':322,'to-x':470,'to-y':64})}],
+ ])} as unknown as Graph;
+ const raw:Value={tag:9,body:value({'start-diagram-object':1,'end-diagram-object':2,'start-connector-id':3,'end-connector-id':4,'end-point-x':472,'end-point-y':69,'connector-type':0,segments:[5,6]})};
+ const {graphic,...geometry}=parseConnector(g,raw,new Map([[101,value({X:180,Y:322})],[8,value({'fill-type':'solid','fill-color':0xff2b5c88})],[15,value(2)],[17,value({Start:1,End:3})]]),'reattached',target=>{
+  const w=target===g.objects.get(1)?a:b;return new Map([[101,value({X:w.x,Y:w.y})],[105,value({Width:w.width,Height:w.height})]]);
+ })!;
+ const line:Widget={...widget('reattached',geometry.x,geometry.y,geometry.width,geometry.height),type:'Connector',connection:{routing:'rounded',start:{target:a.id},end:{target:b.id}},content:[graphic]};
+ return page('flow-attachments',[line,a,b,
+  edge('thin',{x:670,y:114,target:'thin-a'},{x:672,y:424,target:'thin-b'},'rounded',[{x:672,y:114}]),
+  node('thin-a',600,70,'Thin source'),node('thin-b',602,424,'Thin target'),
+ ]);
+}
 export function flowEndingCase():Page {
  return {...page('flow-endings',[
   edge('horizontal-circles',{x:60.5,y:80.5},{x:220.5,y:80.5},'straight',[],'',false,false,{Start:18,End:19}),

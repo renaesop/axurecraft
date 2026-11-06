@@ -107,7 +107,7 @@ Line / Button / DropList 等兼容分支与上述对象的专属行为仍需补�
 - 圆角折线只在真正转向的中间点画圆弧；共线段不再产生额外圆弧。隐藏描边不再留下箭头。
 - 新增顺序、分支汇合、回路自环、双泳道 4 组[结构用例](structure-review.md#流程图四组结构用例)，另有重复母版浏览器用例。5 页在两个渲染器中截图差异均为 0，检查线条可见性、点击、路径、唯一 SVG 标记和无悬空引用。公开测试增至 74 项，本地语料仍为 41 项，共 115 项。
 - 官方 `Flow.rplib` 含 37 个条目、38 个展开控件，没有 Connector 对象；它用于检查图形符号，不作为连线覆盖证据。仍有 1 个缺失 Image Stream 诊断。官方 `RP9 Tour.rp` 的 5 条真实连接线（4 条曲线、1 条圆角折线）保留全部起止节点与连接点，整体转换零诊断；这两个输入另在 HTML / React 浏览器中检查。
-- 现有实现保持保存时的路径，不提供编辑器自动布线、移动节点后的自动重连或业务流程执行引擎。流程图尚缺同文件原生导出 HTML 的配对截图；双渲染器一致不能代替该验证。
+- 转换时按目标控件连接点重算吸附端点，修复首尾折线并保持中间绕行路径；不提供编辑器自动布线、移动节点后的自动重连或业务流程执行引擎。流程图尚缺同文件原生导出 HTML 的配对截图；双渲染器一致不能代替该验证。
 
 原生能力参考官方[流程图](https://docs.axure.com/axure-rp/reference/flow-diagrams/)与[连接线](https://docs.axure.com/axure-rp/reference/connectors/)文档。第三方库的图形保存为受支持对象时沿用同一转换路径，未逐库验证。
 
@@ -126,3 +126,5 @@ npm run audit:controls -- output/control-audit.json project.rp library.rplib
 审查工具逐文档输出 SHA-256、原生类型数量、转换数量、语义类型和诊断。计数包含非活动面板和每份 Repeater 模板一次，不把展开行数当作独立控件覆盖；嵌套链接、未展开树或母版中的对象可能有不同数量。
 
 表格研究样例来自 [Axure 论坛 RowClickTable](https://forum.axure.com/t/single-row-click-for-table-and-open-details/70428)，原始和扩展版本分别为 66.8 KB / 117.6 KB。尚无同文件原生 HTML 基准，因此表格浏览器回归只证明当前结构、边框和交互实现，不声明像素等价。原生 Table 本身也不提供合并单元格或运行时增删/排序；这些效果通常来自覆盖控件或 Repeater，参见 [Axure Tables 文档](https://docs.axure.com/axure-rp/reference/tables/)。
+
+本轮进一步加入 Connector issue.rp，累计 243 个控件、38 条连线、60 个已吸附端点。纠正 10 个过期端点缓存、末端多余回折和细长 SVG 缩放留白；12 组固定软件栅格化截图均一致，480 次端点距离检查通过。新增五项单元回归后，公开测试 81 项、本地语料 41 项，共 122 项。详见[端点修复报告](flow-samples.md)。

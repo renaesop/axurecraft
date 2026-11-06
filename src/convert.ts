@@ -237,7 +237,7 @@ export function convertRp9(data:Buffer):Conversion {
         widget.kind='hotspot';
         css.background='transparent';css.border='0';
       }else if(type==='Connector'){
-        widget.kind='shape';const connector=parseConnector(g,w,props,widget.id);
+        widget.kind='shape';const connector=parseConnector(g,w,props,widget.id,target=>new Map([...resolveStyle(g,target,doc),...adaptiveStyle(g,target,viewChain)]));
         if(connector){
           const {graphic,...geometry}=connector;Object.assign(widget,geometry);widget.css={...css,background:'transparent',border:'0'};widget.content.push(graphic);widget.connection=connectorInfo(g,w,prefix);
           for(const side of ['start','end'] as const){const target=widget.connection[side].target;if(target&&!contexts.get(g)?.references?.has(target.slice(prefix.length+2)))issues.push({widget:widget.id,feature:'connector-reference',detail:`Unresolved ${side} node: ${target}`});}

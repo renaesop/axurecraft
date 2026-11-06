@@ -118,6 +118,8 @@ export interface VectorGraphic {
     kind: 'vector';
     width: number;
     height: number;
+    /** Keep connector endpoints on the viewport edges, including fractional CSS zoom. */
+    preserveAspectRatio?: 'none';
     paths: VectorPath[];
     gradients: VectorGradient[];
     markers: VectorMarker[];

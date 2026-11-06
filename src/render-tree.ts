@@ -41,7 +41,7 @@ export function contentElements(content:WidgetContent):ElementNode[]{
         }
         return element('path',{d:p.data,fill:p.fill,'fill-opacity':p.fillOpacity,'clip-path':clip,...(p.stroke===undefined?{}:{stroke:p.stroke,'stroke-opacity':p.strokeOpacity,'stroke-width':p.strokeWidth,'stroke-linejoin':'miter','stroke-dasharray':p.dashArray,'marker-start':p.markerStart?`url(#${p.markerStart})`:undefined,'marker-end':p.markerEnd?`url(#${p.markerEnd})`:undefined})});
       });
-      return [element('svg',{class:'ax-vector',xmlns:'http://www.w3.org/2000/svg',width:content.width,height:content.height,viewBox:`0 0 ${Math.max(content.width,0.001)} ${Math.max(content.height,0.001)}`,'aria-hidden':'true'},[...(defs.length?[element('defs',{},defs)]:[]),...paths],{position:'absolute',inset:'0',overflow:'visible','pointer-events':'none'})];
+      return [element('svg',{class:'ax-vector',xmlns:'http://www.w3.org/2000/svg',width:content.width,height:content.height,viewBox:`0 0 ${Math.max(content.width,0.001)} ${Math.max(content.height,0.001)}`,preserveAspectRatio:content.preserveAspectRatio,'aria-hidden':'true'},[...(defs.length?[element('defs',{},defs)]:[]),...paths],{position:'absolute',inset:'0',overflow:'visible','pointer-events':'none'})];
     }
     case 'control':{
       const c=content;

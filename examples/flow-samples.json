@@ -14,5 +14,13 @@
     "url": "https://axure-discourse.s3.amazonaws.com/original/3X/2/b/2b712247d8c65e6b129c7cd67bf40d4b8fb263fa.rp",
     "sha256": "ea584f52d89028a885cf632ebd99e5f873413db750c1a98558bbad6187ba42b7",
     "expected": { "widgets": 175, "nodes": 12, "connectors": 6, "markers": 6, "hollowCircles": 0, "freeEnds": 0, "roundTrips": 18 }
+  },
+  {
+    "name": "connector-move",
+    "title": "Connector issue.rp — Connectors break when items moved",
+    "source": "https://forum.axure.com/t/connectors-break-when-items-moved/68632",
+    "url": "https://d2d2wdgkcw7kfa.cloudfront.net/original/3X/3/3/33e50f5a5796542df4ffa97b41b67de5eef00b14.rp",
+    "sha256": "99e7887b4b46fc559865f23d631b15cd977fa8841ddd9bf1425deb8ed0b9ebb8",
+    "expected": { "widgets": 6, "nodes": 3, "connectors": 3, "markers": 3, "hollowCircles": 0, "freeEnds": 0, "roundTrips": 7 }
   }
 ]

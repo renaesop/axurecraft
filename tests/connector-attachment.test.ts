@@ -13,6 +13,7 @@ test('attached endpoints override stale coordinates and the last segment is not 
  const c=parseConnector(g,line,box(410,2647,0,0),'line',()=>box(940,100,320,892))!;
  assert.deepEqual([c.x,c.y,c.width,c.height],[410,992,690,1655]);
  assert.equal(c.graphic.paths[0].data,'M 0 1655 L 690 1655 L 690 0');
+ assert.deepEqual(c.labelPoint,{x:690,y:1172.5},'label follows the reattached route, not the stale endpoint or bounding-box center');
  // The serialized cache remains untouched for lossless round trips.
  assert.equal(line.body!.entries!.find(([k])=>k.text==='end-point-y')![1].value,997);
 });
@@ -44,8 +45,10 @@ test('reattached single legs remain orthogonal and curves retain authored contro
  g.objects.set(5,{tag:9,body:value({'from-x':10,'from-y':20,'to-x':200,'to-y':20})});
  const c=parseConnector(g,{tag:9,body:value({...line,'connector-type':1,segments:[5]})},box(10,20,0,0),'offset',()=>box(150,40,100,60))!;
  assert.equal(c.graphic.paths[0].data,'M 0 0 L 95 0 L 95 80 L 190 80');
+ assert.deepEqual(c.labelPoint,{x:95,y:40});
  const curve=parseConnector(g,{tag:9,body:value({...line,'connector-type':3,'control-points':[{LowerHandle:{X:50,Y:40},HigherHandle:{X:150,Y:60}}]})},box(10,20,0,0),'curve',()=>box(150,40,100,60))!;
  assert.equal(curve.graphic.paths[0].data,'M 0 0 C 40 20 140 40 190 80');
+ assert.deepEqual(curve.labelPoint,{x:91.25,y:32.5},'curves without a saved PathPoint use their cubic midpoint');
 });
 test('issue #3: a 23px vertical connector never appends a stale endpoint across the page',()=>{
  const g=graph();g.guids.push('4ffb380b33f19a4791117af9ea33bbd0');

@@ -46,6 +46,8 @@ export interface RpRecord {
   kind: 'axure-binary' | 'jpeg' | 'xml' | 'opaque';
   references: PartReference[]; storedSha256: string; decodedSha256: string;
   inner?: InnerTable; payload: Buffer;
+  /** Team records start at a page header and may span noncontiguous pages. */
+  team?: { entryId: number; pages: number[] };
 }
 export interface RpContainer {
   sha256: string; fileSize: number; headerHex: string; formatVersion: number;
@@ -97,16 +99,9 @@ function manifestReferences(manifest: unknown): PartReference[] {
   return refs;
 }
 
-export function parseRp9Container(data: Buffer): RpContainer {
-  need(data.length >= 13 && data.length <= MAX_FILE, 'file size outside PoC limits');
-  need(data[0] === 0xac && data[1] === 0xef, 'unsupported container (legacy ZIP .rp requires a separate decoder)');
-  const formatVersion = data.readUInt16LE(2);
-  need(formatVersion === 9, `unsupported container version ${formatVersion}`);
-  const manifestStoredLength = data.readUInt32LE(4);
-  const dataBase = 8 + manifestStoredLength;
-  need(manifestStoredLength <= MAX_MANIFEST && dataBase <= data.length, 'manifest bounds');
-  let cursor = 8;
-  function byte(): number { need(cursor < dataBase, 'truncated manifest frame'); return data[cursor++]; }
+function readManifestFrame(frame: Buffer): { manifest: unknown; manifestDecodedLength: number } {
+  let cursor = 0;
+  function byte(): number { need(cursor < frame.length, 'truncated manifest frame'); return frame[cursor++]; }
   function varint(): number {
     let n = 0;
     for (let shift = 0; shift < 35; shift += 7) {
@@ -119,8 +114,123 @@ export function parseRp9Container(data: Buffer): RpContainer {
   need(byte() === 1, 'unsupported manifest frame flags');
   const manifestDecodedLength = varint();
   const compressedLength = varint();
-  need(cursor + compressedLength === dataBase, 'unsupported multi-block or malformed manifest');
-  const manifest = JSON.parse(utf8.decode(decodeLz4Block(data.subarray(cursor, dataBase), manifestDecodedLength))) as unknown;
+  need(cursor + compressedLength === frame.length, 'unsupported multi-block or malformed manifest');
+  const manifest = JSON.parse(utf8.decode(decodeLz4Block(frame.subarray(cursor), manifestDecodedLength))) as unknown;
+  return { manifest, manifestDecodedLength };
+}
+
+function decodeRecord(stored: Buffer, total: number): Pick<RpRecord, 'compression' | 'payload' | 'kind' | 'inner' | 'decodedLength' | 'storedSha256' | 'decodedSha256'> {
+  const compression = stored[0] === 0x1f && stored[1] === 0x8b && stored[2] === 8 ? 'gzip' : 'none';
+  need(total < MAX_TOTAL, 'cumulative output limit');
+  const payload = compression === 'gzip' ? gunzipSync(stored, { maxOutputLength: Math.min(MAX_RECORD, MAX_TOTAL - total) }) : stored;
+  need(total + payload.length <= MAX_TOTAL, 'cumulative output limit');
+  let kind: RpRecord['kind'] = 'opaque';
+  let inner: InnerTable | undefined;
+  if (payload.length >= 24 && payload.readUInt32LE(20) === 0xc351) { kind = 'axure-binary'; inner = parseStringTable(payload); }
+  else if (payload[0] === 0xff && payload[1] === 0xd8 && payload[2] === 0xff) kind = 'jpeg';
+  else if (payload.subarray(0, 17).toString() === '<BreakingChanges>') kind = 'xml';
+  return { compression, payload, kind, inner, decodedLength: payload.length, storedSha256: sha256(stored), decodedSha256: sha256(payload) };
+}
+
+/** Read the paged local WorkingCopy described in issue #1, never repository snapshots. */
+function parseTeamContainer(data: Buffer): RpContainer {
+  const PAGE = 4096, CAPACITY = 4084;
+  need(data.length % PAGE === 0, 'team page file size must be a multiple of 4096');
+  const used = new Set<number>();
+  function chain(start: number, owner: number, limit: number): { bytes: Buffer; pages: number[] } {
+    const parts: Buffer[] = [], pages: number[] = [];
+    let index = start, length = 0;
+    while (true) {
+      need(Number.isSafeInteger(index) && index >= 0 && index < data.length / PAGE, 'team page index out of bounds');
+      need(!used.has(index), 'team page cycle or reused page');
+      used.add(index); pages.push(index);
+      const offset = index * PAGE;
+      need(data.readUInt32LE(offset) === owner, `team page owner mismatch at ${index}`);
+      need(data.readUInt32LE(offset + 4092) === 0, 'unsupported team page reserved field');
+      const next = data.readUInt16LE(offset + 4088), flag = data.readUInt16LE(offset + 4090);
+      need(flag === 0x100 || flag === 0x200, `unsupported team page flag ${flag}`);
+      const size = flag === 0x200 ? next : CAPACITY;
+      need(size <= CAPACITY, 'invalid team page used bytes');
+      length += size;
+      need(length <= limit, 'team page chain length limit');
+      parts.push(data.subarray(offset + 4, offset + 4 + size));
+      if (flag === 0x200) return { bytes: Buffer.concat(parts, length), pages };
+      index = next;
+    }
+  }
+  const frame = chain(0, 0, MAX_MANIFEST).bytes;
+  const { manifest, manifestDecodedLength } = readManifestFrame(frame);
+  const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+  need(object(manifest) && object(manifest.Root), 'team manifest root missing');
+  const entries: { path: string[]; id: number; start: number; length: number }[] = [];
+  const ids = new Set<number>(), paths = new Set<string>();
+  let count = 0;
+  function walk(group: Record<string, unknown>, depth: number): void {
+    need(++count <= 100000 && depth <= 128, 'team manifest complexity limit');
+    if (group.Items != null) {
+      need(object(group.Items), 'invalid team manifest items');
+      for (const item of Object.values(group.Items)) {
+        need(++count <= 100000, 'team manifest complexity limit');
+        need(object(item) && object(item.Key) && Array.isArray(item.Key.Path), 'invalid team entry path');
+        const path = item.Key.Path;
+        need(path.length > 0 && path.length <= 128 && path.every(p => typeof p === 'string' && p.length > 0), 'invalid team entry path');
+        // Other snapshots are deliberately not parsed or used as fallbacks.
+        if (path[0] !== 'WorkingCopy') continue;
+        need(path.length >= 2, 'invalid team entry path');
+        // Early RP9 team files omit StartPage; their first range identifies
+        // the chain head. Continuation pages still come from the page links.
+        const firstRange = Array.isArray(item.PageRanges) ? item.PageRanges[0] : undefined;
+        const start = item.StartPage === undefined && Array.isArray(firstRange) &&
+          firstRange.length === 2 && Number.isSafeInteger(firstRange[1]) && firstRange[1] > 0
+          ? firstRange[0] : item.StartPage;
+        const id = item.Id, length = item.Length;
+        need(typeof id === 'number' && Number.isSafeInteger(id) && id > 0 && id <= 0xffffffff, 'invalid team entry id');
+        need(typeof start === 'number' && Number.isSafeInteger(start) && start > 0, 'invalid team entry start page');
+        need(typeof length === 'number' && Number.isSafeInteger(length) && length > 0 && length <= MAX_RECORD, 'invalid team entry length');
+        need(!ids.has(id), 'duplicate team entry id'); ids.add(id);
+        const key = JSON.stringify(path);
+        need(!paths.has(key), 'duplicate team entry path'); paths.add(key);
+        entries.push({ path, id, start, length });
+      }
+    }
+    if (group.ChildGroups != null) {
+      need(object(group.ChildGroups), 'invalid team manifest groups');
+      for (const child of Object.values(group.ChildGroups)) {
+        need(object(child), 'invalid team manifest group'); walk(child, depth + 1);
+      }
+    }
+  }
+  walk(manifest.Root, 0);
+  need(entries.length > 0, 'team project has no local WorkingCopy entries');
+  entries.sort((a, b) => Number(b.path.at(-1) === 'DesignDocument') - Number(a.path.at(-1) === 'DesignDocument'));
+  const references: PartReference[] = [], records: RpRecord[] = [];
+  let total = 0;
+  for (const entry of entries) {
+    const { bytes: stored, pages } = chain(entry.start, entry.id, MAX_RECORD);
+    need(stored.length === entry.length, 'team entry length mismatch');
+    const decoded = decodeRecord(stored, total); total += decoded.decodedLength;
+    // There is no contiguous record area: offsets identify physical page headers.
+    const fileOffset = entry.start * PAGE;
+    const reference = { path: entry.path.slice(0, -1), part: entry.path.at(-1)!, relativeOffset: fileOffset };
+    references.push(reference);
+    records.push({ index: records.length, relativeOffset: fileOffset, fileOffset, reserved: 0,
+      storedLength: stored.length, references: [reference], team: { entryId: entry.id, pages }, ...decoded });
+  }
+  return { sha256: sha256(data), fileSize: data.length, headerHex: data.subarray(0, 8).toString('hex'),
+    formatVersion: 9, manifestStoredLength: frame.length, manifestDecodedLength, dataBase: 0, manifest, references, records };
+}
+
+export function parseRp9Container(data: Buffer): RpContainer {
+  need(data.length >= 13 && data.length <= MAX_FILE, 'file size outside PoC limits');
+  if (data.readUInt32LE(0) === 0 && data[4] === 1) return parseTeamContainer(data);
+  if (data[0] === 0x50 && data[1] === 0x4b) throw new Error('unsupported container (legacy ZIP .rp requires a separate decoder)');
+  need(data[0] === 0xac && data[1] === 0xef, 'unrecognized Axure container (expected RP9 .rp or paged .rpteam)');
+  const formatVersion = data.readUInt16LE(2);
+  need(formatVersion === 9, `unsupported container version ${formatVersion}`);
+  const manifestStoredLength = data.readUInt32LE(4);
+  const dataBase = 8 + manifestStoredLength;
+  need(manifestStoredLength <= MAX_MANIFEST && dataBase <= data.length, 'manifest bounds');
+  const { manifest, manifestDecodedLength } = readManifestFrame(data.subarray(8, dataBase));
   const references = manifestReferences(manifest);
   const refsByOffset = new Map<number, PartReference[]>();
   for (const ref of references) {
@@ -128,7 +238,7 @@ export function parseRp9Container(data: Buffer): RpContainer {
   }
   const records: RpRecord[] = [];
   let total = 0;
-  cursor = dataBase;
+  let cursor = dataBase;
   while (cursor < data.length) {
     need(records.length < 100000 && cursor + 8 <= data.length, 'record header bounds');
     const relativeOffset = cursor - dataBase;
@@ -137,18 +247,9 @@ export function parseRp9Container(data: Buffer): RpContainer {
     need(reserved === 0, 'unsupported nonzero record reserved field');
     need(storedLength > 0 && storedLength <= MAX_RECORD && cursor + 8 + storedLength <= data.length, 'record payload bounds');
     const stored = data.subarray(cursor + 8, cursor + 8 + storedLength);
-    const compression = stored[0] === 0x1f && stored[1] === 0x8b && stored[2] === 8 ? 'gzip' : 'none';
-    const payload = compression === 'gzip' ? gunzipSync(stored, { maxOutputLength: Math.min(MAX_RECORD, MAX_TOTAL - total) }) : stored;
-    total += payload.length;
-    need(total <= MAX_TOTAL, 'cumulative output limit');
-    let kind: RpRecord['kind'] = 'opaque';
-    let inner: InnerTable | undefined;
-    if (payload.length >= 24 && payload.readUInt32LE(20) === 0xc351) { kind = 'axure-binary'; inner = parseStringTable(payload); }
-    else if (payload[0] === 0xff && payload[1] === 0xd8 && payload[2] === 0xff) kind = 'jpeg';
-    else if (payload.subarray(0, 17).toString() === '<BreakingChanges>') kind = 'xml';
+    const decoded = decodeRecord(stored, total); total += decoded.decodedLength;
     records.push({ index: records.length, relativeOffset, fileOffset: cursor, reserved, storedLength,
-      decodedLength: payload.length, compression, kind, references: refsByOffset.get(relativeOffset) ?? [],
-      storedSha256: sha256(stored), decodedSha256: sha256(payload), inner, payload });
+      references: refsByOffset.get(relativeOffset) ?? [], ...decoded });
     cursor += 8 + storedLength;
   }
   const offsets = new Set(records.map(record => record.relativeOffset));

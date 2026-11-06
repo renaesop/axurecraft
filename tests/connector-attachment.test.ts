@@ -57,3 +57,25 @@ test('issue #3: a 23px vertical connector never appends a stale endpoint across 
   assert.equal(c.graphic.paths[0].data,'M 0 0 L 0 23');
  }
 });
+
+test('issue #3: unresolved ports use segment endpoints instead of stale diagonal caches',()=>{
+ for(const type of [0,1])for(const refs of [{},{'end-diagram-object':1,'end-connector-id':4},{'end-diagram-object':9,'end-connector-id':2}]){
+  const g=graph();g.objects.set(8,{tag:9,body:value({'from-x':1412,'from-y':2896,'to-x':1412,'to-y':2919})});
+  const raw:Value={tag:9,body:value({...refs,'end-point-x':798,'end-point-y':1914,'connector-type':type,segments:[8]})};
+  const c=parseConnector(g,raw,box(1412,2896,0,0),'unresolved',()=>box(1364,2919,95,47))!;
+  assert.deepEqual([c.x,c.y,c.width,c.height],[1412,2896,0,23]);
+  assert.equal(c.graphic.paths[0].data,'M 0 0 L 0 23');
+ }
+});
+
+test('issue #3: multiple bends and hollow end markers terminate at the saved segment endpoint',()=>{
+ for(const type of [0,1]){
+  const g=graph();g.objects.set(5,{tag:9,body:value({'from-x':10,'from-y':20,'to-x':100,'to-y':20})});
+  g.objects.set(6,{tag:9,body:value({'from-x':100,'from-y':20,'to-x':100,'to-y':80})});
+  const p=new Map([...box(10,20,0,0),[15,value(2)],[17,value({Start:1,End:19})]]);
+  const c=parseConnector(g,{tag:9,body:value({'end-point-x':-500,'end-point-y':-600,'connector-type':type,segments:[5,6]})},p,'bends')!;
+  assert.deepEqual([c.x,c.y,c.width,c.height],[10,20,90,60]);
+  assert.ok(c.graphic.paths[0].data.endsWith(' L 90 60'));
+  assert.deepEqual(c.graphic.paths[0].markerHoles,[{x:90,y:60,radius:1.5}]);
+ }
+});

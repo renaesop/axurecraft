@@ -167,8 +167,16 @@ export function convertRp9(data:Buffer):Conversion {
         }
       }else if(type==='ReferenceDiagramObject'){
         widget.kind='group';widget.css=css.display==='none'?{display:'none'}:{};
-        const pair=field(w.body,'ReferredMaster')?.values,master=pair&&graphByGuid.get(g.guids[Number(pair[1])-1]);
-        if(!master?.root)issues.push({widget:widget.id,feature:'master-reference',detail:'Referenced master record is missing'});
+        const pair=field(w.body,'ReferredMaster')?.values,guid=pair?g.guids[Number(pair[1])-1]:undefined,master=guid?graphByGuid.get(guid):undefined;
+        if(!master?.root){
+          issues.push({widget:widget.id,feature:'master-reference',detail:`Referenced master ${guid??'(unknown GUID)'} is missing (instance ${JSON.stringify(widget.name||widget.id)})`});
+          // A group has a zero-size DOM wrapper and contributes only its children
+          // to page bounds. Missing contents need a painted box at the saved size.
+          widget.kind='unsupported';
+          widget.css={...widget.css,background:'#fff7ed',border:'1px dashed #b45309',overflow:'hidden'};
+          widget.content.push({kind:'text',css:{'font-family':'Arial, sans-serif','font-size':'12px','line-height':'16px',color:'#78350f',padding:'2px 4px',overflow:'hidden'},
+            paragraphs:[{css:{'white-space':'nowrap',overflow:'hidden','text-overflow':'ellipsis'},runs:[{text:`Missing master: ${widget.name||guid||widget.id}`,css:{}}]}]});
+        }
         else{
           const ownOverride=masterOverrides.get(idFor(g,w)),overrideView=ownOverride?.graph.guids[number(field(ownOverride.value,'ViewId'))-1];
           const savedChain=viewChain,views=nativeViews(doc!,master),selected=overrideView&&overrideView!=='00000000000000000000000000000000'?overrideView:g.guids[number(props.get(P.MASTER_VIEW))-1],view=views?.views.find(v=>v.id===selected)??views?.views.find(v=>v.id===views.defaultId);

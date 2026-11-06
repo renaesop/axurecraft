@@ -1,3 +1,4 @@
+import {pageDirectory,firstDirectoryPage} from './page-directory.ts';
 import {reactStyle,reactAttribute as attributeName} from './react-props.ts';
 import {materializeTables} from './repeater-model.ts';
 import {describeWidgets} from './widget-state.ts';
@@ -90,12 +91,31 @@ export async function writeReactProject(project:Project,assets:Map<string,Buffer
   const src=fileURLToPath(new URL('.',import.meta.url));
   copyFileSync(join(src,'react-runtime.tsx'),join(source,'runtime.tsx'));copyFileSync(join(src,'model.ts'),join(source,'model.ts'));
   for(const file of ['rich-text.ts','pointer.ts','menu.ts','popups.ts','input-events.ts','adaptive.ts','compression.ts','images.ts','groups.ts','expression-methods.ts','tree.ts','repeater-actions.ts','panel.ts','transition.ts','motion.ts','navigation.ts','controls.ts','table.ts','repeater-model.ts','react-props.ts','render-tree.ts','widget-state.ts','expression.ts','behavior-runtime.ts','widget-dom.ts','dom-content.ts','selection.ts','variables.ts','page-layout.ts'])copyFileSync(join(src,file),join(source,file));
-  const entry=project.pages.map((_,i)=>`import Page${i+1} from './Page${i+1}.jsx';`).join('\n')+`\nimport {createRoot} from 'react-dom/client';\nconst pages={${project.pages.map((p,i)=>`${json(p.file)}:Page${i+1}`).join(',')}};\nconst Page=pages[decodeURIComponent(location.pathname.split('/').pop())]??Page1;\ncreateRoot(document.getElementById('root')).render(<Page/>);\n`;
+  const directory=pageDirectory(project),first=project.pages.find(p=>p.id===firstDirectoryPage(directory))??project.pages[0];
+  copyFileSync(join(src,'react-preview.tsx'),join(source,'preview.tsx'));
+  const entry=project.pages.map((_,i)=>`import Page${i+1} from './Page${i+1}.jsx';`).join('\n')+`
+import {createRoot} from 'react-dom/client';
+import {PrototypePreview} from './preview';
+const pages={${project.pages.map((p,i)=>`${json(p.file)}:Page${i+1}`).join(',')}};
+const metadata=${json(project.pages.map(({id,name,file})=>({id,name,file})))};
+const filename=location.pathname.split('/').pop();
+const preview=!filename||filename==='index.html';
+let requested;
+try { requested=preview?new URLSearchParams(location.search).get('page'):decodeURIComponent(filename); } catch {}
+const file=Object.hasOwn(pages,requested)?requested:${json(first?.file)};
+const Page=pages[file];
+const selected=metadata.find(page=>page.file===file);
+if(selected)document.title=selected.name+' · React';
+createRoot(document.getElementById('root')).render(preview
+  ? <PrototypePreview directory={${json(directory)}} pages={metadata} activePageId={selected?.id}><Page/></PrototypePreview>
+  : <Page/>);
+`;
   writeFileSync(join(source,'main.jsx'),entry);
   const req=createRequire(import.meta.url);
   await build({entryPoints:[join(source,'main.jsx')],outfile:join(root,'app.js'),bundle:true,format:'iife',platform:'browser',target:'es2022',jsx:'automatic',sourcemap:true,nodePaths:[fileURLToPath(new URL('../node_modules',import.meta.url))]});
   writeFileSync(join(root,'styles.css'),baseCss);
   for(const p of project.pages)writeFileSync(join(root,p.file),`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(p.name)} · React</title><link rel="stylesheet" href="styles.css"><script defer src="app.js"></script></head><body style="background:${escapeHtml(p.background)}"><div id="root"></div></body></html>`);
+  writeFileSync(join(root,'index.html'),`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>React 预览</title><link rel="stylesheet" href="styles.css"><script defer src="app.js"></script></head><body><div id="root"></div></body></html>`);
   writeFileSync(join(root,'project.json'),JSON.stringify(project,null,2)+'\n');
   writeFileSync(join(root,'package.json'),JSON.stringify({name:'generated-axure-react',version:'1.0.0',private:true,type:'module',scripts:{build:'node build.mjs',typecheck:'tsc --noEmit'},dependencies:{react:req('react/package.json').version,'react-dom':req('react-dom/package.json').version},devDependencies:{esbuild:req('esbuild/package.json').version,typescript:req('typescript/package.json').version,'@types/react':req('@types/react/package.json').version,'@types/react-dom':req('@types/react-dom/package.json').version}},null,2)+'\n');
   writeFileSync(join(root,'build.mjs'),`import {build} from 'esbuild';\nawait build({entryPoints:['source/main.jsx'],outfile:'app.js',bundle:true,format:'iife',platform:'browser',target:'es2022',jsx:'automatic',sourcemap:true});\n`);

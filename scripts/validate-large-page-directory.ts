@@ -21,7 +21,8 @@ try {
     try {
       await page.goto(pathToFileURL(join(output, renderer === 'react' ? 'react/index.html' : 'index.html')).href);
       const nav = page.getByRole('navigation', { name: '页面目录' });
-      await page.frameLocator('iframe').locator('.rp-page').waitFor();
+      const surface = renderer === 'react' ? page : page.frameLocator('iframe');
+      await surface.locator('.rp-page').waitFor();
       const actual = await nav.evaluate(nav => Array.from(nav.querySelectorAll('li'), li => {
         let depth = 0, parent = li.parentElement;
         while (parent && parent !== nav) { if (parent.tagName === 'UL') depth++; parent = parent.parentElement; }
@@ -30,14 +31,15 @@ try {
       }));
       assert.deepEqual(actual, expected, renderer + ': all 243 entries must retain native order, nesting and GUID');
       const first = project.pages.find(p => p.id === expected[0][2])!;
-      assert.equal(await page.locator('iframe').getAttribute('src'), first.file);
+      if (renderer === 'html') assert.equal(await page.locator('iframe').getAttribute('src'), first.file);
+      else { assert.equal(await page.locator('iframe').count(), 0); assert.equal(await page.title(), first.name + ' · React'); }
       await page.screenshot({ path: join(output, `${renderer}-initial.png`) });
       const openPage = async (id: string) => {
         const target = project.pages.find(p => p.id === id)!;
         const link = nav.locator(`a[data-page-id="${id}"]`);
         await link.click();
-        const frame = page.frames().find(f => f.parentFrame()); assert.ok(frame);
-        await frame.waitForURL('**/' + target.file);
+        const frame = renderer === 'react' ? page.mainFrame() : page.frames().find(f => f.parentFrame()); assert.ok(frame);
+        await frame.waitForURL(renderer === 'react' ? url => url.searchParams.get('page') === target.file : '**/' + target.file);
         await frame.locator('.rp-page').waitFor();
         assert.equal(await frame.title(), target.name + (renderer === 'react' ? ' · React' : ''));
         assert.equal(await link.getAttribute('aria-current'), 'page');

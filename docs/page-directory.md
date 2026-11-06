@@ -32,7 +32,7 @@ node scripts/validate-standalone.mjs output/page-directory-check/authored/react
 
 ## React DevTools 的独立调查
 
-Issue #13 单独跟踪 React 入口审查。此次以 DevTools renderer hook 探针检查 `react/index.html`，顶层静态容器没有 React renderer，但子 iframe 已注册 `react-dom 19.3.1`，并提交包含 `Page1`、`PrototypePage`、`RpWidget` 的组件树；直接打开 React 子页同样可检测。尚未用浏览器扩展 UI 复现用户的全部操作，因此不将其描述为所有 React 页面均不支持 DevTools。目录修复不关闭 #13。
+Issue #13 单独跟踪 React 入口审查。此次以 DevTools renderer hook 探针检查 `react/index.html`，顶层静态容器没有 React renderer，但子 iframe 已注册 `react-dom 19.3.1`，并提交包含 `Page1`、`PrototypePage`、`RpWidget` 的组件树；直接打开 React 子页同样可检测。尚未用浏览器扩展 UI 复现用户的全部操作，因此不将其描述为所有 React 页面均不支持 DevTools。目录修复不关闭 #13。后续顶层 React 入口修复与验证见 [React DevTools](react-devtools.md)。
 
 ## 175 页、11 层的公开 RP 样本
 

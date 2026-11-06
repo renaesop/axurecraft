@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { PNG } from 'pngjs';
-import { teamFile, workingCopyEntries, widgetGuid } from '../tests/fixtures/rpteam.ts';
+import { teamFile, workingCopyEntries, widgetGuid, nativeRecord } from '../tests/fixtures/rpteam.ts';
+import { parseProject } from '../src/graph.ts';
+import { parseRp9Payload, encodeRp9Payload } from '../src/parser/rp9-payload.ts';
 
 const output = resolve('output/rpteam-check');
 mkdirSync(output, { recursive: true });
@@ -17,8 +19,23 @@ const report = JSON.parse(readFileSync(join(output, 'conversion-report.json'), '
 assert.equal(report.stats.pages, 1);
 assert.equal(report.stats.widgets, 1);
 assert.deepEqual(report.issues, []);
+// A real team sample includes empty pages. Compile an authored equivalent so
+// the regression runs in CI without requiring the public binary.
+const emptyOutput = join(output, 'empty-page');
+mkdirSync(emptyOutput, { recursive: true });
+const emptyInput = join(emptyOutput, 'empty.rpteam');
+writeFileSync(emptyInput, teamFile([
+  { path: ['WorkingCopy', 'DesignDocument'], bytes: nativeRecord(false) },
+  { path: ['WorkingCopy', 'empty', 'package'], bytes: nativeRecord(true, '', true) },
+]));
+execFileSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', emptyInput, emptyOutput], { stdio: 'inherit' });
+const emptyProject = JSON.parse(readFileSync(join(emptyOutput, 'project.json'), 'utf8'));
+assert.equal(emptyProject.pages.length, 1);
+assert.deepEqual(emptyProject.pages[0].widgets, []);
+execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '--project', join(emptyOutput, 'react/tsconfig.json')], { stdio: 'inherit' });
 const browser = await chromium.launch({
   executablePath: process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true,
+  args: ['--disable-gpu'],
 });
 const errors: string[] = [], results: unknown[] = [], screenshots: Buffer[] = [];
 try {
@@ -50,6 +67,56 @@ try {
   const validation = { fixture: 'authored binary; not an Axure export', results, errors, differentPixels };
   writeFileSync(join(output, 'validation.json'), JSON.stringify(validation, null, 2) + '\n');
   console.log(JSON.stringify(validation, null, 2));
+  // Optional, explicitly supplied local samples. No third-party binaries or
+  // network downloads are required by the default CI regression.
+  for (const [sampleIndex, filename] of process.argv.slice(2).entries()) {
+    const input = resolve(filename), destination = join(output, `sample-${sampleIndex + 1}`);
+    const native = parseProject(readFileSync(input));
+    let roundTrips = 0;
+    for (const record of native.records) {
+      if (!record.inner) continue;
+      const payload = record.payload.subarray(record.inner.payloadStart);
+      const ast = parseRp9Payload(payload, record.inner.strings);
+      assert.deepEqual(encodeRp9Payload(ast.roots, record.inner.strings), payload);
+      roundTrips++;
+    }
+    assert.ok(roundTrips > 0);
+    execFileSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', input, destination], { stdio: 'inherit' });
+    const project = JSON.parse(readFileSync(join(destination, 'project.json'), 'utf8'));
+    assert.ok(project.pages.length > 0);
+    const comparisons: unknown[] = [];
+    const sampleErrors: string[] = [];
+    for (const definition of project.pages) {
+      const shots: Buffer[] = [];
+      for (const renderer of ['html', 'react']) {
+        const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+        try {
+          page.on('pageerror', error => sampleErrors.push(`${definition.file}/${renderer}: ${error.message}`));
+          await page.goto(pathToFileURL(join(destination, renderer === 'react' ? 'react' : '', definition.file)).href);
+          if (definition.widgets.length) await page.locator(`#${definition.widgets[0].id}`).waitFor({ state: 'attached' });
+          await page.evaluate(() => document.fonts.ready);
+          assert.ok(await page.locator('img').evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0)), `${definition.file}/${renderer}: broken emitted image`);
+          shots.push(await page.screenshot({ path: join(destination, `${renderer}-${definition.file}.png`), fullPage: true, animations: 'disabled' }));
+        } finally { await page.close(); }
+      }
+      const [html, react] = shots.map(s => PNG.sync.read(s));
+      assert.deepEqual([html.width, html.height], [react.width, react.height]);
+      let differentPixels = 0;
+      for (let i = 0; i < html.data.length; i += 4) {
+        if (!html.data.subarray(i, i + 4).equals(react.data.subarray(i, i + 4))) differentPixels++;
+      }
+      comparisons.push({ page: definition.file, width: html.width, height: html.height, differentPixels });
+    }
+    const report = {
+      sample: basename(input), sha256: native.sha256, roundTrips, stats: project.stats,
+      conversionIssues: project.issues, comparisons, errors: sampleErrors,
+      scope: 'HTML versus React in the same browser; not native Axure screenshot parity',
+    };
+    writeFileSync(join(destination, 'validation.json'), JSON.stringify(report, null, 2) + '\n');
+    assert.deepEqual(sampleErrors, []);
+    assert.ok(comparisons.every(c => (c as { differentPixels: number }).differentPixels === 0), `${filename}: renderer screenshots differ; see validation.json`);
+    console.log(JSON.stringify({ sample: report.sample, roundTrips, stats: project.stats, pagesCompared: comparisons.length }));
+  }
 } finally {
   await browser.close();
 }

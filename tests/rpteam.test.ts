@@ -47,6 +47,43 @@ test('single-page team directories and records ending exactly at a page boundary
   assert.equal(record.references[0].relativeOffset, record.fileOffset);
 });
 
+test('real RP9 directory shapes allow null collections on leaf and empty groups', () => {
+  const bytes = teamFile(workingCopyEntries(), m => {
+    m.Root.ChildGroups = {
+      leaf: { Items: m.Root.Items, ChildGroups: null },
+      empty: { Items: null, ChildGroups: null },
+    };
+    m.Root.Items = {};
+  });
+  assert.equal(convertRp9(bytes).project.pages[0].widgets[0].id, `w-${widgetGuid}`);
+  assert.equal(parseRp9Container(bytes).records.length, 4);
+});
+
+test('early RP9 team directories use the first PageRanges start when StartPage is absent', () => {
+  const bytes = teamFile(workingCopyEntries(), m => {
+    for (const item of Object.values(m.Root.Items)) delete item.StartPage;
+  });
+  const parsed = parseRp9Container(bytes);
+  assert.deepEqual(parsed.records.slice(0, 2).map(r => r.payload), [nativeRecord(false), nativeRecord(true)]);
+  assert.ok(parsed.records[1].team!.pages.some((p, i, pages) => i > 0 && p !== pages[i - 1] + 1));
+  assert.equal(convertRp9(bytes).project.pages[0].widgets[0].id, `w-${widgetGuid}`);
+});
+
+test('range fallback rejects invalid heads and does not hide an invalid explicit StartPage', () => {
+  for (const ranges of [undefined, null, [], [[0, 1]], [[-1, 1]], [[0.5, 1]], [[999999, 1]], [[3, 0]], [[3, -1]], [[3, 0.5]], [[3]], ['3']]) {
+    assert.throws(() => parseRp9Container(teamFile(workingCopyEntries(), m => {
+      const item = m.Root.Items['1'];
+      delete item.StartPage;
+      (item as any).PageRanges = ranges;
+    })), /start page|page index out of bounds/);
+  }
+  for (const start of [null, 0, -1, '3']) {
+    assert.throws(() => parseRp9Container(teamFile(workingCopyEntries(), m => {
+      (m.Root.Items['1'] as any).StartPage = start;
+    })), /start page/);
+  }
+});
+
 test('team project rejects corrupt directory and record page chains', () => {
   const fixture = teamFile(workingCopyEntries());
   const pageStart = 3 * PAGE_SIZE; // second entry: uncompressed WorkingCopy page

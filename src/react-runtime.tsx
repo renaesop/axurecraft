@@ -37,7 +37,7 @@ const disabledOverrides=(widgets:WidgetStateDefinition[]):Record<string,Override
 function useRuntime():Runtime {const value=useContext(Context);if(!value)throw new Error('Prototype widget requires PrototypePage');return value;}
 
 /** React owns widget state. The document background follows the active page view. */
-export function PrototypePage({definition,children}:{definition:PageDefinition;children:ReactNode}) {
+export function PrototypePage({definition,children}:{definition:PageDefinition;children?:ReactNode}) {
   const variables=useMemo(()=>createVariables(definition.variables,typeof window==='undefined'?'':window.location.hash,definition.name),[definition]);
   const [backdrops,setBackdrops]=useState<Record<string,{color:string;zIndex:number;hide:boolean;transition?:Action['transition']}>>({});
   // Repeater rows are derived from their template/data, never serialized a second

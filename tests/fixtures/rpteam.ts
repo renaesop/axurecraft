@@ -28,8 +28,8 @@ export function manifestFrame(manifest: unknown): Buffer {
 }
 
 export interface TeamEntry { path: string[]; bytes: Buffer }
-export interface TeamItem { Key: { Path: string[] }; Id: number; StartPage: number; Length: number; PageRanges: number[][]; Crc32: number }
-export interface TeamManifest { Root: { Items: Record<string, TeamItem>; ChildGroups: Record<string, unknown> }; Heap: string }
+export interface TeamItem { Key: { Path: string[] }; Id: number; StartPage?: number; Length: number; PageRanges: number[][]; Crc32: number }
+export interface TeamManifest { Root: { Items: Record<string, TeamItem>; ChildGroups: Record<string, unknown> | null }; Heap: string }
 export function teamFile(entries: TeamEntry[], edit?: (manifest: TeamManifest) => void): Buffer {
   // Page 1 is an unused heap page. Chains jump over it and alternate with other
   // entries, so a parser that assumes physically adjacent pages cannot pass.
@@ -60,7 +60,7 @@ export function teamFile(entries: TeamEntry[], edit?: (manifest: TeamManifest) =
   return Buffer.concat(pages);
 }
 
-export function nativeRecord(page: boolean, text = 'Current working copy'): Buffer {
+export function nativeRecord(page: boolean, text = 'Current working copy', empty = false): Buffer {
   const strings: string[] = [];
   const stringIndex = (s: string): number => { if (!strings.includes(s)) strings.push(s); return strings.indexOf(s) + 1; };
   const value = (v: unknown): Rp9Node => {
@@ -72,7 +72,7 @@ export function nativeRecord(page: boolean, text = 'Current working copy'): Buff
   const object = (id: number, name: string, body: unknown): Rp9Node => ({ tag: 9, id, classIndex: stringIndex(name), body: value(body) });
   const objects = page ? [
     object(2, 'Axure:Page', { diagram: 3, Padding: 'fixture padding '.repeat(400) }),
-    object(3, 'Axure:Diagram', { 'diagram-objects': [4] }),
+    object(3, 'Axure:Diagram', { 'diagram-objects': empty ? [] : [4] }),
     object(4, 'Axure:DiagramObject:TextBox', { MyStyle: 5, 'name-block': { text: 'Team input' }, TextBlock: { text }, Type: 0 }),
     object(5, 'Axure:WidgetStyle', { PropList: [
       { DOAName: 101, Value: { X: 24, Y: 32 } },

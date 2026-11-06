@@ -167,7 +167,7 @@ function parseTeamContainer(data: Buffer): RpContainer {
   let count = 0;
   function walk(group: Record<string, unknown>, depth: number): void {
     need(++count <= 100000 && depth <= 128, 'team manifest complexity limit');
-    if (group.Items !== undefined) {
+    if (group.Items != null) {
       need(object(group.Items), 'invalid team manifest items');
       for (const item of Object.values(group.Items)) {
         need(++count <= 100000, 'team manifest complexity limit');
@@ -177,7 +177,13 @@ function parseTeamContainer(data: Buffer): RpContainer {
         // Other snapshots are deliberately not parsed or used as fallbacks.
         if (path[0] !== 'WorkingCopy') continue;
         need(path.length >= 2, 'invalid team entry path');
-        const id = item.Id, start = item.StartPage, length = item.Length;
+        // Early RP9 team files omit StartPage; their first range identifies
+        // the chain head. Continuation pages still come from the page links.
+        const firstRange = Array.isArray(item.PageRanges) ? item.PageRanges[0] : undefined;
+        const start = item.StartPage === undefined && Array.isArray(firstRange) &&
+          firstRange.length === 2 && Number.isSafeInteger(firstRange[1]) && firstRange[1] > 0
+          ? firstRange[0] : item.StartPage;
+        const id = item.Id, length = item.Length;
         need(typeof id === 'number' && Number.isSafeInteger(id) && id > 0 && id <= 0xffffffff, 'invalid team entry id');
         need(typeof start === 'number' && Number.isSafeInteger(start) && start > 0, 'invalid team entry start page');
         need(typeof length === 'number' && Number.isSafeInteger(length) && length > 0 && length <= MAX_RECORD, 'invalid team entry length');
@@ -187,7 +193,7 @@ function parseTeamContainer(data: Buffer): RpContainer {
         entries.push({ path, id, start, length });
       }
     }
-    if (group.ChildGroups !== undefined) {
+    if (group.ChildGroups != null) {
       need(object(group.ChildGroups), 'invalid team manifest groups');
       for (const child of Object.values(group.ChildGroups)) {
         need(object(child), 'invalid team manifest group'); walk(child, depth + 1);

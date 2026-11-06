@@ -29,8 +29,9 @@ try {
         const firstName = sample === 'real' ? '工程规范文档' : '首页';
         const first = project.pages.find(p => p.name === firstName)!;
         assert.equal(await nav.getByRole('link').first().textContent(), firstName);
-        assert.equal(await page.locator('iframe').getAttribute('src'), first.file);
-        const frame = page.frameLocator('iframe');
+        if (renderer === 'html') assert.equal(await page.locator('iframe').getAttribute('src'), first.file);
+        else assert.equal(await page.locator('iframe').count(), 0);
+        const frame = renderer === 'react' ? page : page.frameLocator('iframe');
         await frame.locator('.rp-page').waitFor();
         assert.equal(await frame.locator('title').textContent(), first.name + (renderer === 'react' ? ' · React' : ''));
         const topNames = await nav.locator(':scope > ul > li').evaluateAll(nodes => nodes.map(n => n.querySelector(':scope > a, :scope > details > summary > a, :scope > details > summary > .folder, :scope > .folder')?.textContent));
@@ -49,8 +50,8 @@ try {
           const link = duplicates.nth(i), file = (await link.getAttribute('href'))!;
           targets.push(file);
           await link.click();
-          const child = page.frames().find(f => f.parentFrame());
-          assert.ok(child); await child.waitForURL('**/' + file);
+          if (renderer === 'react') await page.waitForURL(url => url.search === file);
+          else { const child = page.frames().find(f => f.parentFrame()); assert.ok(child); await child.waitForURL('**/' + file); }
           await frame.locator('.rp-page').waitFor();
           assert.equal(await link.getAttribute('aria-current'), 'page');
           assert.equal(await nav.locator('[aria-current="page"]').count(), 1);

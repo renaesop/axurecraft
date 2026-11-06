@@ -195,6 +195,22 @@ export function parseSemanticProject(json:string):Project {
   const files=new Set<string>();
   array(root.pages,'$.pages').forEach((value,i)=>{const path='$.pages.'+i,p=object(value,path);string(p.id,path+'.id');string(p.name,path+'.name');string(p.background,path+'.background');if(p.alignment!==undefined&&!['left','center'].includes(String(p.alignment)))fail(path+'.alignment','left or center');if(p.contentLeft!==undefined)number(p.contentLeft,path+'.contentLeft');if(p.adaptive!==undefined){const a=object(p.adaptive,path+'.adaptive');string(a.defaultId,path+'.adaptive.defaultId');const ids=new Set<string>();for(const item of array(a.views,path+'.adaptive.views')){const v=object(item,path+'.adaptive.view'),id=string(v.id,path+'.adaptive.id');if(ids.has(id))fail(path+'.adaptive.id','unique view ID');ids.add(id);string(v.name,path+'.adaptive.name');if(v.parent!==undefined)string(v.parent,path+'.adaptive.parent');for(const key of ['width','height'])if(number(v[key],path+'.adaptive.'+key)<0)fail(path+'.adaptive.size','nonnegative size');}if(!ids.has(String(a.defaultId)))fail(path+'.adaptive.defaultId','existing view');const layouts=object(a.layouts,path+'.adaptive.layouts');for(const id of ids){const l=object(layouts[id],path+'.adaptive.layout');for(const key of ['width','height'])number(l[key],path+'.adaptive.layout.'+key);string(l.background,path+'.adaptive.layout.background');if(l.contentLeft!==undefined)number(l.contentLeft,path+'.adaptive.layout.contentLeft');if(l.alignment!==undefined&&!['left','center'].includes(String(l.alignment)))fail(path+'.adaptive.layout.alignment','left or center');}}const file=string(p.file,path+'.file');if(!/^[\w-]+\.html$/.test(file)||files.has(file))fail(path+'.file','unique plain HTML filename');files.add(file);for(const k of ['width','height'])if(number(p[k],path+'.'+k)<0)fail(path+'.'+k,'nonnegative dimension');behaviors(p.behaviors,path+'.behaviors');widgets(p.widgets,path+'.widgets',new Set());});
   if(files.size===0)fail('$.pages','at least one page');
+  if(root.pageTree!==undefined){
+    const pageIds=new Set((root.pages as {id:string}[]).map(p=>p.id)),nodeIds=new Set<string>(),listed=new Set<string>();
+    let count=0;
+    const directory=(v:unknown,path:string,depth=0):void=>{
+      if(depth>64)fail(path,'directory depth <= 64');
+      array(v,path).forEach((value,i)=>{
+        if(++count>100000)fail(path,'at most 100000 directory nodes');
+        const p=path+'.'+i,n=object(value,p),id=string(n.id,p+'.id');
+        if(nodeIds.has(id))fail(p+'.id','unique directory node ID');nodeIds.add(id);string(n.name,p+'.name');
+        if(n.pageId!==undefined){const pageId=string(n.pageId,p+'.pageId');if(!pageIds.has(pageId)||listed.has(pageId))fail(p+'.pageId','existing, uniquely listed page');listed.add(pageId);}
+        directory(n.children,p+'.children',depth+1);
+      });
+    };
+    directory(root.pageTree,'$.pageTree');
+    if(listed.size!==pageIds.size)fail('$.pageTree','every page listed exactly once');
+  }
   array(root.issues,'$.issues').forEach(value=>{const i=object(value,'$.issue');string(i.feature,'$.feature');string(i.detail,'$.detail');});
   for(const value of Object.values(object(root.stats,'$.stats')))number(value,'$.stats');
   return project as Project;

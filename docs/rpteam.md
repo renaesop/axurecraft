@@ -24,7 +24,7 @@ node scripts/validate-standalone.mjs output/rpteam-check/react
 
 ## 公开真实样本验证
 
-2026-11-06 下载并验证以下固定版本的公开文件。二进制保存在本地 `research/rpteam/`，不纳入仓库；来源与 SHA-256 保存在 `examples/rpteam-samples.json`。
+2026-11-06 下载并验证以下固定版本的公开文件。三个原始二进制均提交在 `tests/fixtures/rpteam/`；固定版本来源、大小、SHA-256 和预期结果保存在同目录的 `sources.json`。测试直接读取仓库夹具，不下载文件、不依赖 `research/`。
 
 | 样本 | 字节数 | 页面 / 控件 | 二进制记录往返 | HTML/React 整页像素差 |
 | --- | ---: | ---: | ---: | ---: |
@@ -33,15 +33,18 @@ node scripts/validate-standalone.mjs output/rpteam-check/react
 
 两个样本暴露并驱动修复了叶子组 `ChildGroups: null` 和早期 RP9 缺省 `StartPage` 的兼容问题。对应原创回归在修复前失败；修复后通过，仍拒绝非法范围、页号和显式起始页。真实样本中的三个空白页还暴露了 `PrototypePage.children` 的类型限制，现已改为可选并增加导出编译回归。所有输出页面无脚本异常，实际生成的图片均成功加载。浏览器条件为 Chromium、1440×900 视口、DPR 1、禁用 GPU；截图为完整页面。
 
-下载上述固定版本到本地后可复现：
+检出仓库并安装依赖后即可复现：
 
 ```bash
-npx --no-install tsx scripts/validate-rpteam.ts research/rpteam/fanbo-job.rpteam research/rpteam/706platform.rpteam
+npm run test:ci
+npx --no-install tsx scripts/validate-rpteam.ts
 node scripts/validate-standalone.mjs output/rpteam-check/sample-2/react
 ```
 
-可选参数不会触发网络下载。报告、转换诊断及全部截图保存在 `output/rpteam-check/sample-1/` 和 `sample-2/`。无参数仍运行原创夹具，适用于 CI。
+`tests/rpteam-samples.test.ts` 随 `npm run test:ci` 自动执行，验证原始文件哈希和大小、工作副本记录、81 条二进制记录往返、页面/控件/资源统计、空白页和已有诊断数量。样本缺失或被替换时测试直接失败。`TNT.rpteam` 覆盖未知容器报错。
+
+浏览器脚本无参数时运行原创夹具及两个真实 RP9 样本，编译导出 TSX 并对比全部 37 页；可选路径参数可替换真实样本列表，不触发网络下载。报告、转换诊断及全部截图保存在 `output/rpteam-check/sample-1/` 和 `sample-2/`。
 
 `fanbo-job` 保留 12 条交互动作诊断；`706platform` 保留 45 条交互动作和 16 条 `Image Stream unavailable` 诊断。成功解析和两种渲染器一致不等于所有交互、图片都完整恢复，也不代表与原生 Axure 截图等价。
 
-另下载的 [TNT.rpteam](https://github.com/RobTain/InnoTech2/blob/94a4b5fb8c85f7c02cf9af6918f4d3c6ecbd6229/TNT.rpteam) 使用不同头部 `dda90a0000000000`，仍明确报不支持，不算通过样本。报告者的私有 18 页文件尚未验证；团队同步、服务器访问及缺失包恢复不在此支持范围内。
+纳入负向测试的 [TNT.rpteam](https://github.com/RobTain/InnoTech2/blob/94a4b5fb8c85f7c02cf9af6918f4d3c6ecbd6229/TNT.rpteam) 使用不同头部 `dda90a0000000000`，仍明确报不支持，不算通过样本。报告者的私有 18 页文件尚未验证；团队同步、服务器访问及缺失包恢复不在此支持范围内。

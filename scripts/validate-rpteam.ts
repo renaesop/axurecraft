@@ -8,6 +8,7 @@ import { PNG } from 'pngjs';
 import { teamFile, workingCopyEntries, widgetGuid, nativeRecord } from '../tests/fixtures/rpteam.ts';
 import { parseProject } from '../src/graph.ts';
 import { parseRp9Payload, encodeRp9Payload } from '../src/parser/rp9-payload.ts';
+import { rpteamSamples, rpteamSamplePath, readRpteamSample } from '../tests/fixtures/rpteam-samples.ts';
 
 const output = resolve('output/rpteam-check');
 mkdirSync(output, { recursive: true });
@@ -20,7 +21,7 @@ assert.equal(report.stats.pages, 1);
 assert.equal(report.stats.widgets, 1);
 assert.deepEqual(report.issues, []);
 // A real team sample includes empty pages. Compile an authored equivalent so
-// the regression runs in CI without requiring the public binary.
+// the empty-page regression also has a small, focused fixture.
 const emptyOutput = join(output, 'empty-page');
 mkdirSync(emptyOutput, { recursive: true });
 const emptyInput = join(emptyOutput, 'empty.rpteam');
@@ -67,9 +68,11 @@ try {
   const validation = { fixture: 'authored binary; not an Axure export', results, errors, differentPixels };
   writeFileSync(join(output, 'validation.json'), JSON.stringify(validation, null, 2) + '\n');
   console.log(JSON.stringify(validation, null, 2));
-  // Optional, explicitly supplied local samples. No third-party binaries or
-  // network downloads are required by the default CI regression.
-  for (const [sampleIndex, filename] of process.argv.slice(2).entries()) {
+  // Run the checked-in real samples by default, with no network dependency.
+  const defaults = rpteamSamples.filter(sample => sample.expected);
+  for (const sample of defaults) readRpteamSample(sample);
+  const filenames = process.argv.length > 2 ? process.argv.slice(2) : defaults.map(rpteamSamplePath);
+  for (const [sampleIndex, filename] of filenames.entries()) {
     const input = resolve(filename), destination = join(output, `sample-${sampleIndex + 1}`);
     const native = parseProject(readFileSync(input));
     let roundTrips = 0;
@@ -82,6 +85,7 @@ try {
     }
     assert.ok(roundTrips > 0);
     execFileSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', input, destination], { stdio: 'inherit' });
+    execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '--project', join(destination, 'react/tsconfig.json')], { stdio: 'inherit' });
     const project = JSON.parse(readFileSync(join(destination, 'project.json'), 'utf8'));
     assert.ok(project.pages.length > 0);
     const comparisons: unknown[] = [];

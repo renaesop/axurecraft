@@ -12,8 +12,9 @@ type CanvasEdge=Edge<{widget:Widget;x:number;y:number},'native'>;
 function element(node:ElementNode|string,key:number|string):ReactNode {
  if(typeof node==='string')return node;
  if(node.tag==='iframe')return <div key={key} role="img" aria-label={String(node.attrs.title??'内联框架')} style={{...reactStyle(node.css??{}),background:'#f4f6fa',border:'1px dashed #8490a0',padding:8}}>内联框架：{String(node.attrs.title??'预览占位')}</div>;
- const props:Record<string,unknown>={key,...Object.fromEntries(Object.entries(node.attrs).filter(([k])=>k!=='data-rp-link').map(([k,v])=>[reactAttribute(k),v])),style:node.css?reactStyle(node.css):undefined};
+ const props:Record<string,unknown>={key,...Object.fromEntries(Object.entries(node.attrs).filter(([k])=>k!=='data-rp-link').map(([k,v])=>[node.tag==='option'&&k==='value'?'value':reactAttribute(k),v])),style:node.css?reactStyle(node.css):undefined};
  if(node.tag==='option')delete props.selected;
+ if(node.tag==='select'&&node.attrs.multiple)props.defaultValue=node.children.flatMap(c=>typeof c!=='string'&&c.attrs.selected?[String(c.attrs.value??'')]:[]);
  if(node.tag==='textarea'){props.defaultValue=node.children.filter(c=>typeof c==='string').join('');return createElement(node.tag,props);}
  if(['input','br','img'].includes(node.tag))return createElement(node.tag,props);
  return createElement(node.tag,props,...node.children.map(element));

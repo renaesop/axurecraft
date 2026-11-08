@@ -31,6 +31,12 @@ try{
  assert.equal(await page.locator('#table [role=cell]').count(),4);
  assert.equal(await page.locator('#hidden-note').count(),0,'hidden group must not expose its child');
  assert.equal(await page.getByRole('img',{name:'外部内容',exact:true}).count(),1);assert.deepEqual(externalRequests,[]);
+ const verifySelects=async()=>{
+  assert.deepEqual(await page.locator('#single-select option').evaluateAll(options=>options.map(o=>(o as HTMLOptionElement).value)),['draft','review','approved'],'option values must retain their IDs independently of labels');
+  assert.equal(await page.locator('#single-select select').inputValue(),'approved','single select retains its initial value');
+  assert.deepEqual(await page.locator('#multi-select option:checked').evaluateAll(options=>options.map(o=>(o as HTMLOptionElement).value)),['draft','approved'],'multi select retains all initial selections');
+ };
+ await verifySelects();
  const surface=await page.locator('.flow-surface').boundingBox();assert.ok(surface);
  const verifyGeometry=async(model=fixture)=>{
   for(const entry of canvasIndex(model).values()){
@@ -53,9 +59,10 @@ try{
  await drag('table',-20,35);moves.push({id:'table',x:760,y:235});
  const downloadPromise=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();const download=await downloadPromise;await download.saveAs(join(out,'saved.canvas.json'));
  const saved=JSON.parse(readFileSync(join(out,'saved.canvas.json'),'utf8'));assert.deepEqual(saved.moves,moves);
- await page.screenshot({path:join(out,'edited.png')});
+ await verifySelects();await page.screenshot({path:join(out,'edited.png')});
  await page.reload();await page.locator('#entry-check svg > path').waitFor({state:'attached'});await verifyGeometry();
  await page.getByLabel('打开画布',{exact:true}).setInputFiles(join(out,'saved.canvas.json'));await page.getByRole('status').filter({hasText:'画布已恢复'}).waitFor();await page.locator('#entry-check svg > path').waitFor({state:'attached'});await verifyGeometry(moveCanvas(fixture,moves));
+ await verifySelects();
  const reSave=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();await (await reSave).saveAs(join(out,'resaved.canvas.json'));assert.deepEqual(JSON.parse(readFileSync(join(out,'resaved.canvas.json'),'utf8')),saved);
  writeFileSync(join(out,'conflict.canvas.json'),JSON.stringify({...saved,sourceSha256:'other'}));
  await page.getByLabel('打开画布',{exact:true}).setInputFiles(join(out,'conflict.canvas.json'));await page.getByRole('status').filter({hasText:'baseline conflict'}).waitFor();await verifyGeometry(moveCanvas(fixture,moves));
@@ -63,6 +70,6 @@ try{
  await page.getByLabel('页面',{exact:true}).selectOption('native');await page.locator(`[id="${native.widgets[0].id}"] svg > path`).waitFor({state:'attached'});await verifyGeometry(native);
  for(const w of native.widgets){const g=w.connection!.geometry!;if(!g.label)continue;const text=w.content.find(c=>c.kind==='text');if(!text)continue;const r=await page.locator(`[id="${w.id}"] .rp-text`).boundingBox();assert.ok(r);assert.ok(Math.abs(r.x+r.width/2-surface.x-g.label.x)<.75);assert.ok(Math.abs(r.y+r.height/2-surface.y-g.label.y)<.75);}
  assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
- const report={wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,errors};
+ const report={wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
  writeFileSync(join(out,'validation.json'),JSON.stringify(report,null,2));console.log(report);
 }finally{await browser.close();}

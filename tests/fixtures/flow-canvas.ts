@@ -25,6 +25,14 @@ export function flowCanvasCase():Page {
  const frame:Widget={...structuredClone(note),id:'frame',name:'外部内容',type:'InlineFrame',kind:'frame',x:780,y:400,width:260,height:70,css:{},content:[{kind:'frame',src:'https://example.invalid/prototype',name:'external',title:'外部内容',border:true,scrolling:'auto'}]};page.widgets.push(frame);
  const hiddenChild:Widget={...structuredClone(note),id:'hidden-note',x:0,y:0};
  page.widgets.push({...structuredClone(group),id:'hidden-group',x:900,y:600,width:240,height:44,css:{display:'none'},children:[hiddenChild]});
+ // Values deliberately differ from labels; the single selection is not first.
+ for(const multiple of [false,true])page.widgets.push({
+  ...structuredClone(note),id:multiple?'multi-select':'single-select',name:multiple?'多选状态':'单选状态',
+  type:multiple?'ListBox':'ComboBox',x:780,y:multiple?570:510,width:240,height:multiple?80:40,
+  content:[{kind:'control',control:'select',label:multiple?'多选状态':'单选状态',value:'approved',multiple,listBox:multiple,
+   selectedValues:multiple?['draft','approved']:undefined,
+   options:[{value:'draft',label:'草稿'},{value:'review',label:'审核中'},{value:'approved',label:'已通过'}]}],
+ });
  const walk=(widgets:Widget[])=>{for(const w of widgets){const g=w.connection?.geometry;if(g?.label)for(const c of w.content)if(c.kind==='text')c.css={...c.css,left:`${g.label.x-w.x-50}px`,top:`${g.label.y-w.y-10}px`,right:'auto',bottom:'auto',width:'100px',height:'20px'};walk(w.children??[]);}};walk(page.widgets);
  return page;
 }

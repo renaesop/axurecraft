@@ -136,6 +136,13 @@ export function parseSemanticProject(json:string):Project {
       if(w.disabled!==undefined)boolean(w.disabled,p+'.disabled');
       if(w.propagateStyles!==undefined)boolean(w.propagateStyles,p+'.propagateStyles');
       if(w.connection!==undefined){const c=object(w.connection,p+'.connection');if(!['straight','orthogonal','rounded','curve'].includes(string(c.routing,p+'.connection.routing')))fail(p+'.connection.routing','connector routing');for(const side of ['start','end']){const e=object(c[side],p+'.connection.'+side);for(const key of ['target','port'])if(e[key]!==undefined)string(e[key],p+'.connection.'+side+'.'+key);}}
+      if(w.connection!==undefined){const c=object(w.connection,p+'.connection');if(c.geometry!==undefined){
+        const g=object(c.geometry,p+'.connection.geometry'),at=(v:unknown)=>{const q=object(v,p+'.connection.geometry.point');number(q.x,p+'.connection.geometry.x');number(q.y,p+'.connection.geometry.y');};
+        if(g.space!=='parent')fail(p+'.connection.geometry.space','parent');at(g.start);at(g.end);array(g.points,p+'.connection.geometry.points').forEach(at);
+        if(g.controls!==undefined){const controls=array(g.controls,p+'.connection.geometry.controls');if(controls.length!==2)fail(p+'.connection.geometry.controls','two control points');controls.forEach(at);}
+        if(c.routing==='curve'&&g.controls===undefined)fail(p+'.connection.geometry.controls','curve control points');
+        if(g.label!==undefined)at(g.label);
+      }}
       if(w.selected!==undefined)boolean(w.selected,p+'.selected');
       if(w.selectionGroup!==undefined)string(w.selectionGroup,p+'.selectionGroup');
       if(w.variants!==undefined){

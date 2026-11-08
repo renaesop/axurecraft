@@ -1,10 +1,10 @@
 import {field,items,number,object,str,type Graph,type Value} from './graph.ts';
 import {paint,linePattern,marker} from './vector.ts';
-import type {ConnectorInfo,VectorGraphic,VectorGradient,VectorMarker} from './model.ts';
+import type {ConnectorInfo,ConnectorGeometry,VectorGraphic,VectorGradient,VectorMarker} from './model.ts';
 import {connectorPoint} from './connector-point.ts';
+import {connectorPath} from './connector-geometry.ts';
 import {resolveStyle} from './styles.ts';
 type Point={x:number;y:number};
-const xy=(p:Point)=>`${Number(p.x.toFixed(5))} ${Number(p.y.toFixed(5))}`;
 const at=(value:Value|undefined):Point=>({x:number(field(value,'X'),NaN),y:number(field(value,'Y'),NaN)});
 const valid=(p:Point)=>Number.isFinite(p.x)&&Number.isFinite(p.y);
 const routing:ConnectorInfo['routing'][]=['rounded','orthogonal','straight','curve'];
@@ -20,7 +20,7 @@ export function connectorInfo(g:Graph,w:Value,prefix=''):ConnectorInfo {
  return {routing:type,start:endpoint('start'),end:endpoint('end')};
 }
 /** Connectors use absolute segment/control-point coordinates, unlike VectorShape's normalized paths. */
-export function parseConnector(g:Graph,w:Value,props:Map<number,Value>,id:string,targetStyle=(target:Value)=>resolveStyle(g,target)):{x:number;y:number;width:number;height:number;graphic:VectorGraphic;labelPoint:Point}|undefined {
+export function parseConnector(g:Graph,w:Value,props:Map<number,Value>,id:string,targetStyle=(target:Value)=>resolveStyle(g,target)):{x:number;y:number;width:number;height:number;graphic:VectorGraphic;labelPoint:Point;geometry:ConnectorGeometry}|undefined {
  const type=number(field(w.body,'connector-type'),2);if(!routing[type])return;
  const info=connectorInfo(g,w);
  const endpoint=(side:'start'|'end'):Point|undefined=>{
@@ -81,24 +81,12 @@ export function parseConnector(g:Graph,w:Value,props:Map<number,Value>,id:string
    remaining-=length;
   }
  }
- let d=`M ${xy(local(start))}`;
- if(type===3)d+=` C ${xy(local(handles[0]))} ${xy(local(handles[1]))} ${xy(local(end))}`;
- else for(let i=1;i<points.length;i++){
-  const previous=points[i-1],point=points[i],next=points[i+1];
-  if(type===0&&next){
-   const before=Math.hypot(point.x-previous.x,point.y-previous.y),after=Math.hypot(next.x-point.x,next.y-point.y),radius=Math.min(5,before/2,after/2);
-   const cross=(point.x-previous.x)*(next.y-point.y)-(point.y-previous.y)*(next.x-point.x);
-   if(radius>0&&Math.abs(cross)>1e-8){const a={x:point.x+(previous.x-point.x)*radius/before,y:point.y+(previous.y-point.y)*radius/before},b={x:point.x+(next.x-point.x)*radius/after,y:point.y+(next.y-point.y)*radius/after};
-    const clockwise=(point.x-previous.x)*(next.y-point.y)-(point.y-previous.y)*(next.x-point.x)>0;
-    d+=` L ${xy(local(a))} A ${radius} ${radius} 0 0 ${clockwise?1:0} ${xy(local(b))}`;continue;}
-  }
-  d+=` L ${xy(local(point))}`;
- }
+ const d=connectorPath(info.routing,points.map(local),handles.map(local));
  const stroke=paint(props.get(8),id+'-stroke'),pattern=number(props.get(16),1),strokeWidth=pattern===9?0:Math.max(0,number(props.get(15),1));
  const ends=props.get(17),startKind=number(field(ends,'Start'),1),endKind=number(field(ends,'End'),1);
  const a=strokeWidth?marker(startKind,id+'-start',stroke.value,strokeWidth):undefined,b=strokeWidth?marker(endKind,id+'-end',stroke.value,strokeWidth):undefined;
  // Keep the saved path and marker centers intact. Clip only the hollow interior,
  // so the shaft cannot show through it, even on translucent/image backgrounds.
  const radius=2.5-strokeWidth/2,holes=strokeWidth&&radius>0?[...(startKind===19?[{...local(start),radius}]:[]),...(endKind===19?[{...local(end),radius}]:[])]:[];
- return {x,y,width,height,labelPoint:local(center),graphic:{kind:'vector',width:Math.max(1,width),height:Math.max(1,height),preserveAspectRatio:'none',paths:[{data:d,fill:'none',fillOpacity:1,stroke:stroke.value,strokeWidth,strokeOpacity:stroke.opacity,dashArray:linePattern(pattern,strokeWidth),markerStart:a?.id,markerEnd:b?.id,...(holes.length?{markerHoles:holes}:{})}],gradients:[stroke.gradient].filter((v):v is VectorGradient=>!!v),markers:[a,b].filter((v):v is VectorMarker=>!!v)}};
+ return {x,y,width,height,geometry:{space:'parent',start:{...start},end:{...end},points:points.slice(1,-1).map(p=>({...p})),...(handles.length?{controls:handles.map(p=>({...p})) as [Point,Point]}:{}),label:{...center}},labelPoint:local(center),graphic:{kind:'vector',width:Math.max(1,width),height:Math.max(1,height),preserveAspectRatio:'none',paths:[{data:d,fill:'none',fillOpacity:1,stroke:stroke.value,strokeWidth,strokeOpacity:stroke.opacity,dashArray:linePattern(pattern,strokeWidth),markerStart:a?.id,markerEnd:b?.id,...(holes.length?{markerHoles:holes}:{})}],gradients:[stroke.gradient].filter((v):v is VectorGradient=>!!v),markers:[a,b].filter((v):v is VectorMarker=>!!v)}};
 }

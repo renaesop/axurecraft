@@ -90,7 +90,7 @@ export async function writeReactProject(project:Project,assets:Map<string,Buffer
   }
   const src=fileURLToPath(new URL('.',import.meta.url));
   copyFileSync(join(src,'react-runtime.tsx'),join(source,'runtime.tsx'));copyFileSync(join(src,'model.ts'),join(source,'model.ts'));
-  for(const file of ['rich-text.ts','pointer.ts','menu.ts','popups.ts','input-events.ts','adaptive.ts','compression.ts','images.ts','groups.ts','expression-methods.ts','tree.ts','repeater-actions.ts','panel.ts','transition.ts','motion.ts','navigation.ts','controls.ts','table.ts','repeater-model.ts','react-props.ts','render-tree.ts','widget-state.ts','expression.ts','behavior-runtime.ts','widget-dom.ts','dom-content.ts','selection.ts','variables.ts','page-layout.ts'])copyFileSync(join(src,file),join(source,file));
+  for(const file of ['rich-text.ts','pointer.ts','menu.ts','popups.ts','input-events.ts','adaptive.ts','compression.ts','images.ts','groups.ts','connector-geometry.ts','expression-methods.ts','tree.ts','repeater-actions.ts','panel.ts','transition.ts','motion.ts','navigation.ts','controls.ts','table.ts','repeater-model.ts','react-props.ts','render-tree.ts','widget-state.ts','expression.ts','behavior-runtime.ts','widget-dom.ts','dom-content.ts','selection.ts','variables.ts','page-layout.ts'])copyFileSync(join(src,file),join(source,file));
   const directory=pageDirectory(project),first=project.pages.find(p=>p.id===firstDirectoryPage(directory))??project.pages[0];
   copyFileSync(join(src,'react-preview.tsx'),join(source,'preview.tsx'));
   const entry=project.pages.map((_,i)=>`import Page${i+1} from './Page${i+1}.jsx';`).join('\n')+`

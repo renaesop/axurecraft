@@ -254,7 +254,7 @@ export interface RepeaterData {
     templateSource: SourceReference;
 }
 export interface Widget {
-    /** Native connector topology. Geometry remains the authored vector path. */
+    /** Native topology with optional editable geometry; legacy SVG output remains supported. */
     connection?: ConnectorInfo;
     adaptive?:Record<string,import('./adaptive.ts').AdaptivePaint>;
     id: string;
@@ -298,7 +298,18 @@ export interface Widget {
         widgets: Widget[];
     }[];
 }
+export interface CanvasPoint { x:number; y:number }
+export interface ConnectorGeometry {
+    space: 'parent';
+    start: CanvasPoint;
+    end: CanvasPoint;
+    points: CanvasPoint[];
+    controls?: [CanvasPoint, CanvasPoint];
+    /** Initial native label anchor; recomputed when endpoints move. */
+    label?: CanvasPoint;
+}
 export interface ConnectorInfo {
+    geometry?: ConnectorGeometry;
     routing:'straight'|'orthogonal'|'rounded'|'curve';
     /** A missing target means a deliberately unattached endpoint, not a guessed node. */
     start:{target?:string;port?:string};

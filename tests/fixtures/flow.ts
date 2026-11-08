@@ -15,7 +15,7 @@ function edge(id:string,start:End,end:End,routing:ConnectorInfo['routing']='stra
  const type=['rounded','orthogonal','straight','curve'].indexOf(routing),objects=new Map<number,Value>(),segments=[...points,end];segments.forEach((p,i)=>{const from=i?points[i-1]:start;objects.set(i+1,{tag:9,body:value({'from-x':from.x,'from-y':from.y,'to-x':p.x,'to-y':p.y})});});
  const raw:Value={tag:9,body:value({'end-point-x':end.x,'end-point-y':end.y,'connector-type':type,segments:segments.map((_,i)=>i+1),'control-points':routing==='curve'?[{LowerHandle:{X:points[0]?.x,Y:points[0]?.y},HigherHandle:{X:points[1]?.x,Y:points[1]?.y}}]:[]})};
  const geometry=parseConnector({objects,guids:[]} as unknown as Graph,raw,new Map([[101,value({X:start.x,Y:start.y})],[8,value({'fill-type':'solid','fill-color':0xff2b5c88})],[15,value(2)],[16,value(dash?2:1)],[17,value(endings)]]),id)!;
- const w=widget(id,geometry.x,geometry.y,geometry.width,geometry.height);w.type='Connector';w.connection={routing,start:start.target?{target:start.target}:{},end:end.target?{target:end.target}:{}};w.content=[geometry.graphic];if(label){w.name=label;w.content.push(text(label));}return w;
+ const w=widget(id,geometry.x,geometry.y,geometry.width,geometry.height);w.type='Connector';w.connection={routing,geometry:geometry.geometry,start:start.target?{target:start.target}:{},end:end.target?{target:end.target}:{}};w.content=[geometry.graphic];if(label){w.name=label;w.content.push(text(label));}return w;
 }
 const page=(id:string,widgets:Widget[]):Page=>({id,name:id,file:id+'.html',width:760,height:600,background:'#fff',behaviors:[],widgets});
 /** Original fixture reproducing the stale endpoint cache found in a public RP9. */

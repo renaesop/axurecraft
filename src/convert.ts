@@ -249,7 +249,7 @@ export function convertRp9(data:Buffer):Conversion {
       }else if(type==='Connector'){
         widget.kind='shape';const connector=parseConnector(g,w,props,widget.id,target=>new Map([...resolveStyle(g,target,doc),...adaptiveStyle(g,target,viewChain)]));
         if(connector){
-          const {graphic,labelPoint,...geometry}=connector;Object.assign(widget,geometry);widget.css={...css,background:'transparent',border:'0'};widget.content.push(graphic);widget.connection=connectorInfo(g,w,prefix);
+          const {graphic,labelPoint,geometry:editableGeometry,...geometry}=connector;Object.assign(widget,geometry);widget.css={...css,background:'transparent',border:'0'};widget.content.push(graphic);widget.connection={...connectorInfo(g,w,prefix),geometry:editableGeometry};
           // The SVG owns the stroke. Longhand borders on this wrapper can
           // override border:0 when React restores an appearance incrementally.
           for(const key of Object.keys(widget.css))if(key.startsWith('border-'))delete widget.css[key];

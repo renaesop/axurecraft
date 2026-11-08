@@ -1,3 +1,4 @@
+import {translateGeometry} from './connector-geometry.ts';
 import type { Widget } from './model.ts';
 
 /**
@@ -43,7 +44,7 @@ export function nestGroups(flat: Widget[], members: ReadonlyMap<string, readonly
       const bottom = contents.length ? Math.max(...contents.map(w => w.y + w.height)) : 0;
       result = {
         ...widget, x, y, width: right - x, height: bottom - y,
-        children: contents.map(w => ({ ...w, x: w.x - x, y: w.y - y })),
+        children: contents.map(w => ({ ...w, x: w.x - x, y: w.y - y, ...(w.connection?.geometry ? {connection:{...w.connection,geometry:translateGeometry(w.connection.geometry,-x,-y)}} : {}) })),
       };
     }
     active.delete(widget.id);

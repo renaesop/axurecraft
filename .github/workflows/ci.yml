@@ -73,6 +73,7 @@ jobs:
             output/tables-check/*.png
             output/rich-text-check/*.png
             output/flow-check/*.png
+            output/flow-canvas-check/*.png
             output/structure-audit.json
           if-no-files-found: warn
           retention-days: 14

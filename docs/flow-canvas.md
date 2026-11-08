@@ -8,10 +8,10 @@
 
 ```bash
 npm ci
-npx tsx scripts/validate-flow-canvas.ts
+npm run test:flow-canvas
 ```
 
-打开 `output/flow-canvas-check/index.html`。原创用例包含分支、曲线、分组、跨组连接、自由端点、孤立文字和四个表格单元格，另有通过 RP9 二进制解析器生成的原生标签用例。所有夹具均在 `tests/fixtures/`，浏览器验证不下载样本或访问 CDN。
+打开 `output/flow-canvas-check/index.html`。原创用例包含分支、曲线、分组、跨组连接、自由端点、孤立文字、四个表格单元格及单选/多选控件，另有通过 RP9 二进制解析器生成的原生标签用例。所有夹具均在 `tests/fixtures/`，浏览器验证不下载样本或访问 CDN。
 
 对自己的原型，先转换，再生成画布：
 
@@ -57,12 +57,12 @@ npx tsx src/flow-canvas-export.ts output/prototype/project.json output/prototype
 
 ```bash
 npm run test:ci
-npx tsx scripts/validate-flow-canvas.ts
+npm run test:flow-canvas
 npm run test:ci:browser
 npm run audit:structure
 npm run test:standalone
 ```
 
-模型测试覆盖原生几何/既有 SVG 一致性、JSON 校验、整页对象保留、末端重接、分组/跨组/自由端点、自环、保存恢复、冲突和旧模型处理。浏览器脚本实际拖动节点、分组、孤立文字与表格，检查端点偏差小于 0.75 px、原生标签、真实 React 组件、下载后刷新重开及重复保存一致性。报告和截图位于 `output/flow-canvas-check/`。
+模型测试覆盖原生几何/既有 SVG 一致性、JSON 校验、整页对象保留、末端重接、分组/跨组/自由端点、自环、保存恢复、冲突和旧模型处理。浏览器脚本实际拖动节点、分组、孤立文字与表格，检查端点偏差小于 0.75 px、原生标签、真实 React 组件、下载后刷新重开及重复保存一致性，并验证选项值与文字不同时，单选和多选状态在初次打开、拖动后、保存重开后都保留。报告和截图位于 `output/flow-canvas-check/`。`test:ci:browser` 固定包含这项检查，因此 main、普通 PR 和手动 CI 都会运行；报告与截图随 `browser-reports` 上传。
 
 这套原创夹具是公开的对照基线；没有读取或验证 issue 作者不能公开的内部原型，也尚未与 draw.io 做同页编辑对比。

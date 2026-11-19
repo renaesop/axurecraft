@@ -83,3 +83,40 @@ export function restoreCanvas(json:string,page:Page,sourceSha256:string):CanvasM
  });
  moveCanvas(page,moves);return moves;
 }
+
+/** Individual authored runs retain their original styles, links and paragraphs. */
+export interface CanvasTextEdit {id:string; content:number; paragraph:number; run:number; text:string}
+export interface CanvasState {moves:CanvasMove[]; texts:CanvasTextEdit[]}
+export function canvasTextEditable(id:string,index:Map<string,CanvasEntry>):boolean {
+ let e=index.get(id);if(!e)return false;
+ while(e){const w=e.widget;if(w.states||w.repeater||w.adaptive||w.variants||w.panel?.fixed)return false;e=e.parent?index.get(e.parent):undefined;}
+ return true;
+}
+export function editCanvas(page:Page,state:CanvasState):Page {
+ const result=moveCanvas(page,state.moves),index=canvasIndex(result),seen=new Set<string>();
+ for(const edit of state.texts){
+  const key=JSON.stringify([edit.id,edit.content,edit.paragraph,edit.run]);
+  if(typeof edit.text!=='string'||![edit.content,edit.paragraph,edit.run].every(n=>Number.isSafeInteger(n)&&n>=0)||seen.has(key)||!canvasTextEditable(edit.id,index))throw new Error('Invalid canvas text edit');
+  const c=index.get(edit.id)!.widget.content[edit.content];
+  const run=c?.kind==='text'?c.paragraphs[edit.paragraph]?.runs[edit.run]:undefined;
+  if(!run)throw new Error('Invalid canvas text target');
+  seen.add(key);run.text=edit.text;
+ }
+ return result;
+}
+export function saveCanvasState(page:Page,sourceSha256:string,state:CanvasState) {
+ editCanvas(page,state);
+ return {...saveCanvas(page,sourceSha256,state.moves),schema:'axurecraft-canvas@2',texts:structuredClone(state.texts)};
+}
+export function restoreCanvasState(json:string,page:Page,sourceSha256:string):CanvasState {
+ const d=JSON.parse(json);
+ if(d?.schema==='axurecraft-canvas@1')return {moves:restoreCanvas(json,page,sourceSha256),texts:[]};
+ if(d?.schema!=='axurecraft-canvas@2'||!Array.isArray(d.texts))throw new Error('Invalid canvas document');
+ const moves=restoreCanvas(JSON.stringify({...d,schema:'axurecraft-canvas@1'}),page,sourceSha256);
+ const texts=d.texts.map((e:unknown)=>{
+  if(!e||typeof e!=='object')throw new Error('Invalid canvas text edit');
+  const t=e as CanvasTextEdit;
+  return {id:t.id,content:t.content,paragraph:t.paragraph,run:t.run,text:t.text};
+ });
+ const state={moves,texts};editCanvas(page,state);return state;
+}

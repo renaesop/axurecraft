@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {flowCanvasCase} from './fixtures/flow-canvas.ts';
 import {flowCases} from './fixtures/flow.ts';
-import {canvasIndex,moveCanvas,saveCanvas,restoreCanvas} from '../src/flow-canvas-model.ts';
+import {canvasIndex,moveCanvas,saveCanvas,restoreCanvas,editCanvas,saveCanvasState,restoreCanvasState} from '../src/flow-canvas-model.ts';
 import {connectorPath,reattachGeometry} from '../src/connector-geometry.ts';
 import {convertRp9} from '../src/convert.ts';
 import {connectorLabelsFile} from './fixtures/connector-labels.ts';
@@ -70,4 +70,36 @@ test('group normalization retains parent-relative endpoints and movement preserv
  const after=canvasIndex(moveCanvas(page,[{id:'entry',x:310,y:15}]));
  assert.equal(after.get('entry-check')!.widget.connection!.start.port,'custom-original-port');
  assert.deepEqual(after.get('entry')!.widget.css,index.get('entry')!.widget.css);
+});
+
+test('text editing preserves rich styles, tables, connector geometry and source baseline',()=>{
+ const page=flowCanvasCase(),before=structuredClone(page);
+ const texts=['isolated','cell-0'].map(id=>({id,content:0,paragraph:0,run:0,text:'编辑 <script> & 新文字'}));
+ const state={moves:[{id:'entry',x:340,y:50}],texts};
+ const result=editCanvas(page,state),expected=moveCanvas(page,state.moves);
+ for(const t of texts){const c=canvasIndex(expected).get(t.id)!.widget.content[0];if(c.kind==='text')c.paragraphs[0].runs[0].text=t.text;}
+ assert.deepEqual(result,expected);assert.deepEqual(page,before);
+ assert.deepEqual(restoreCanvasState(JSON.stringify(saveCanvasState(page,'source',state)),page,'source'),state);
+ assert.deepEqual(restoreCanvasState(JSON.stringify(saveCanvas(page,'source',state.moves)),page,'source'),{moves:state.moves,texts:[]});
+ const text=texts[0];
+ for(const invalid of [[text,text],[{...text,id:'missing'}],[{...text,run:99}],[{...text,paragraph:-1}],[{...text,text:42}], [null]]){
+  assert.throws(()=>restoreCanvasState(JSON.stringify({...saveCanvasState(page,'source',state),texts:invalid}),page,'source'));
+ }
+ const saved=saveCanvasState(page,'source',state);
+ assert.throws(()=>restoreCanvasState(JSON.stringify(saved),page,'other'),/conflict/);
+});
+
+test('text edits refuse read-only dynamic ancestors and preserve redo-independent snapshots',()=>{
+ const page=flowCanvasCase(),group=canvasIndex(page).get('group')!.widget;
+ group.variants=[];
+ const child=group.children!.find(w=>w.content.some(c=>c.kind==='text'))!;
+ const ci=child.content.findIndex(c=>c.kind==='text');
+ assert.throws(()=>editCanvas(page,{moves:[],texts:[{id:child.id,content:ci,paragraph:0,run:0,text:'changed'}]}),/Invalid/);
+ const native=convertRp9(connectorLabelsFile()).project.pages[0];
+ const w=native.widgets.find(w=>w.content.some(c=>c.kind==='text'))!,content=w.content.findIndex(c=>c.kind==='text');
+ const state={moves:[],texts:[{id:w.id,content,paragraph:0,run:0,text:'新标签'}]};
+ const saved=saveCanvasState(native,'native',state);state.texts[0].text='later';
+ const restored=restoreCanvasState(JSON.stringify(saved),native,'native');
+ assert.equal(restored.texts[0].text,'新标签');
+ assert.deepEqual(canvasIndex(editCanvas(native,restored)).get(w.id)!.widget.connection,w.connection);
 });

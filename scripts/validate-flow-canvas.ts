@@ -4,6 +4,8 @@ import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright-core';
 import {PNG} from 'pngjs';
+import {canvasSelectionCase} from '../tests/fixtures/canvas-selection.ts';
+import {arrangeSelection,translateSelection} from '../src/canvas-selection.ts';
 import {canvasResizeCase} from '../tests/fixtures/canvas-resize.ts';
 import {writeFlowCanvas} from '../src/flow-canvas-export.ts';
 import {parseSemanticProject} from '../src/semantic.ts';
@@ -12,7 +14,8 @@ import {convertRp9} from '../src/convert.ts';
 import {connectorLabelsFile} from '../tests/fixtures/connector-labels.ts';
 const project=parseSemanticProject(readFileSync('examples/hello.project.json','utf8'));
 const fixture=canvasResizeCase(),native=convertRp9(connectorLabelsFile()).project.pages[0];native.id='native';native.name='原生连线';
-project.pages=[fixture,native];const out=resolve('output/flow-canvas-check');mkdirSync(out,{recursive:true});
+const selectionFixture=canvasSelectionCase();selectionFixture.id='selection';selectionFixture.name='多选排列';
+project.pages=[fixture,native,selectionFixture];const out=resolve('output/flow-canvas-check');mkdirSync(out,{recursive:true});
 await writeFlowCanvas(project,out);
 writeFileSync(join(out,'project.json'),JSON.stringify(project,null,2));
 const browser=await chromium.launch({executablePath:process.env.CHROME_PATH??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
@@ -38,11 +41,13 @@ try{
  };
  await verifySelects();
  const surface=await page.locator('.flow-surface').boundingBox();assert.ok(surface);
+ const viewport=()=>page.locator('.react-flow__viewport').evaluate(n=>{const m=new DOMMatrixReadOnly(getComputedStyle(n).transform);return {x:m.e,y:m.f,zoom:m.a};});
  const verifyGeometry=async(model=fixture)=>{
+  const v=await viewport();
   for(const entry of canvasIndex(model).values()){
    const w=entry.widget,g=w.connection?.geometry;if(!g)continue;
    const ends=await page.locator(`[id="${w.id}"] svg > path`).first().evaluate(p=>{const path=p as SVGPathElement;return [path.getPointAtLength(0),path.getPointAtLength(path.getTotalLength())].map(point=>{const q=point.matrixTransform(path.getScreenCTM()!);return {x:q.x,y:q.y};});});
-   for(const [i,p] of [g.start,g.end].entries())assert.ok(Math.hypot(ends[i].x-surface.x-entry.origin.x-p.x,ends[i].y-surface.y-entry.origin.y-p.y)<.75,`${w.id} endpoint ${i}`);
+   for(const [i,p] of [g.start,g.end].entries())assert.ok(Math.hypot(ends[i].x-surface.x-v.x-(entry.origin.x+p.x)*v.zoom,ends[i].y-surface.y-v.y-(entry.origin.y+p.y)*v.zoom)<.75,`${w.id} endpoint ${i} actual ${JSON.stringify(ends[i])} expected ${JSON.stringify({x:surface.x+v.x+(entry.origin.x+p.x)*v.zoom,y:surface.y+v.y+(entry.origin.y+p.y)*v.zoom})}`);
   }
  };
  await verifyGeometry();const initial=PNG.sync.read(await page.screenshot({path:join(out,'initial.png')}));
@@ -178,7 +183,70 @@ try{
  await page.locator('.flow-properties textarea').first().fill('新的分支条件');
  assert.ok((await page.locator('[id="'+labelWidget.id+'"]').textContent())?.includes('新的分支条件'));
  await verifyGeometry(native);
+
+ await page.getByLabel('页面',{exact:true}).selectOption('selection');
+ await page.locator('[data-id="entry"]').waitFor();
+ const selectedIds=()=>page.locator('.react-flow__node.selected').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('data-id')).sort());
+ // Real shift-marquee around two nodes; invisible connector anchors are never selected.
+ await page.keyboard.down('Shift');
+ await page.mouse.move(surface.x+280,surface.y+8);await page.mouse.down();await page.mouse.move(surface.x+450,surface.y+235,{steps:10});await page.mouse.up();
+ await page.keyboard.up('Shift');
+ assert.deepEqual(await selectedIds(),['check','entry']);
+ await drag('entry',20,10);
+ const batchMoved=translateSelection(selectionFixture,{moves:[],texts:[]},['entry','check'],20,10);
+ await verifyGeometry(editCanvas(selectionFixture,batchMoved));
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await verifyGeometry(selectionFixture);
+ await page.getByRole('button',{name:'重做',exact:true}).click();await verifyGeometry(editCanvas(selectionFixture,batchMoved));
+ await page.getByRole('button',{name:'恢复原布局',exact:true}).click();
+ // Canvas modifier-click removes/adds one node.
+ await page.locator('[data-id="check"]').click({modifiers:['Shift']});
+ assert.deepEqual(await selectedIds(),['entry']);
+ await page.locator('[data-id="check"]').click({modifiers:['Shift']});
+ assert.deepEqual(await selectedIds(),['check','entry']);
+ const multiIds=['arrange-0','arrange-1','arrange-2'];
+ await page.locator('[data-object-id="arrange-0"]').click();
+ for(const id of multiIds.slice(1))await page.locator('[data-object-id="'+id+'"]').click({modifiers:['Shift']});
+ assert.deepEqual(await selectedIds(),multiIds);
+ const verifyPositions=async(model:typeof fixture,ids:string[])=>{
+  const idx=canvasIndex(model),v=await viewport();
+  for(const id of ids){const r=await page.locator('[data-id="'+id+'"]').boundingBox();assert.ok(r);const p=idx.get(id)!.absolute;
+   assert.ok(Math.abs(r.x-surface.x-v.x-p.x*v.zoom)<.75&&Math.abs(r.y-surface.y-v.y-p.y*v.zoom)<.75,'batch position '+id);
+  }
+ };
+ for(const [mode,label] of [['left','左对齐'],['center','水平居中'],['right','右对齐'],['top','顶对齐'],['middle','垂直居中'],['bottom','底对齐'],['horizontal','水平等距'],['vertical','垂直等距']] as const){
+  await page.getByRole('button',{name:label,exact:true}).click();
+  await verifyPositions(editCanvas(selectionFixture,arrangeSelection(selectionFixture,{moves:[],texts:[]},multiIds,mode)),multiIds);
+  await page.getByRole('button',{name:'撤销',exact:true}).click();await verifyPositions(selectionFixture,multiIds);
+ }
+ await page.getByRole('button',{name:'水平等距',exact:true}).click();
+ let arranged=arrangeSelection(selectionFixture,{moves:[],texts:[]},multiIds,'horizontal');
+ await page.locator('.flow-editor').press('Shift+ArrowDown');
+ arranged=translateSelection(selectionFixture,arranged,multiIds,0,10);
+ await verifyPositions(editCanvas(selectionFixture,arranged),multiIds);
+ const batchFile=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();await (await batchFile).saveAs(join(out,'batch.canvas.json'));
+ await page.reload();await page.getByLabel('页面',{exact:true}).selectOption('selection');
+ await page.getByLabel('打开画布',{exact:true}).setInputFiles(join(out,'batch.canvas.json'));
+ await page.getByRole('status').filter({hasText:'画布已恢复'}).waitFor();await verifyPositions(editCanvas(selectionFixture,arranged),multiIds);
+ await page.locator('[data-object-id="group"]').click();
+ await page.locator('[data-object-id="start"]').click({modifiers:['Shift']});
+ await page.locator('.flow-editor').press('ArrowRight');
+ const deduplicated=translateSelection(selectionFixture,arranged,['group','start'],1,0);
+ await verifyPositions(editCanvas(selectionFixture,deduplicated),['group','start']);
+ await verifyGeometry(editCanvas(selectionFixture,deduplicated));
+ await drag('group',10,5,true);
+ const groupBatch=translateSelection(selectionFixture,deduplicated,['group','start'],10,5);
+ await verifyPositions(editCanvas(selectionFixture,groupBatch),['group','start']);
+ await verifyGeometry(editCanvas(selectionFixture,groupBatch));
+ await page.getByRole('button',{name:'撤销',exact:true}).click();
+ await verifyPositions(editCanvas(selectionFixture,deduplicated),['group','start']);
+ await page.locator('[data-object-id="entry"]').click();
+ await page.locator('[data-object-id="cell-0"]').click({modifiers:['Shift']});
+ await page.locator('.flow-editor').press('ArrowRight');
+ await page.getByRole('status').filter({hasText:'read-only'}).waitFor();
+ await verifyPositions(editCanvas(selectionFixture,deduplicated),['entry','group','start']);
+ await verifyGeometry(editCanvas(selectionFixture,deduplicated));
+
  assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
- const report={sizeInspector:true,resizeHandles:true,groupResize:true,aspectRatio:true,resizeSaveReload:true,keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
+ const report={marqueeSelection:true,multiDrag:true,allAlignments:true,equalGapDistribution:true,batchSaveReload:true,ancestorDeduplication:true,sizeInspector:true,resizeHandles:true,groupResize:true,aspectRatio:true,resizeSaveReload:true,keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
  writeFileSync(join(out,'validation.json'),JSON.stringify(report,null,2));console.log(report);
 }finally{await browser.close();}

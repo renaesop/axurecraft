@@ -4,6 +4,7 @@ import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright-core';
 import {PNG} from 'pngjs';
+import {canvasObjectsCase} from '../tests/fixtures/canvas-objects.ts';
 import {canvasSelectionCase} from '../tests/fixtures/canvas-selection.ts';
 import {arrangeSelection,translateSelection} from '../src/canvas-selection.ts';
 import {canvasResizeCase} from '../tests/fixtures/canvas-resize.ts';
@@ -15,7 +16,8 @@ import {connectorLabelsFile} from '../tests/fixtures/connector-labels.ts';
 const project=parseSemanticProject(readFileSync('examples/hello.project.json','utf8'));
 const fixture=canvasResizeCase(),native=convertRp9(connectorLabelsFile()).project.pages[0];native.id='native';native.name='原生连线';
 const selectionFixture=canvasSelectionCase();selectionFixture.id='selection';selectionFixture.name='多选排列';
-project.pages=[fixture,native,selectionFixture];const out=resolve('output/flow-canvas-check');mkdirSync(out,{recursive:true});
+const objectsFixture=canvasObjectsCase();objectsFixture.id='objects';objectsFixture.name='对象增删';
+project.pages=[fixture,native,selectionFixture,objectsFixture];const out=resolve('output/flow-canvas-check');mkdirSync(out,{recursive:true});
 await writeFlowCanvas(project,out);
 writeFileSync(join(out,'project.json'),JSON.stringify(project,null,2));
 const browser=await chromium.launch({executablePath:process.env.CHROME_PATH??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
@@ -246,7 +248,48 @@ try{
  await verifyPositions(editCanvas(selectionFixture,deduplicated),['entry','group','start']);
  await verifyGeometry(editCanvas(selectionFixture,deduplicated));
 
+
+ await page.getByLabel('页面',{exact:true}).selectOption('objects');
+ const originalCount=await page.locator('.react-flow__node-widget').count();
+ const createdIds:string[]=[];
+ for(const label of ['新增文字','新增矩形','新增椭圆','新增判断','新增按钮']){
+  await page.getByRole('button',{name:label,exact:true}).click();
+  const id=await page.locator('.react-flow__node.selected').getAttribute('data-id');assert.ok(id);createdIds.push(id);
+ }
+ assert.equal(new Set(createdIds).size,5);
+ assert.equal(await page.locator('.react-flow__node-widget').count(),originalCount+5);
+ await page.locator('[data-object-id="'+createdIds[0]+'"]').click();
+ await page.getByLabel('文字 1.1.1',{exact:true}).fill('新建文字 <safe>');
+ await page.getByLabel('文字 1.1.1',{exact:true}).press('Delete');
+ assert.equal(await page.locator('[id="'+createdIds[0]+'"]').count(),1);
+ await page.getByLabel('X',{exact:true}).fill('120');await page.getByLabel('X',{exact:true}).press('Enter');
+ await page.getByLabel('W',{exact:true}).fill('200');await page.getByLabel('W',{exact:true}).press('Enter');
+ await page.locator('.flow-editor').press('Control+d');
+ const copyId=await page.locator('.react-flow__node.selected').getAttribute('data-id');assert.ok(copyId);assert.ok(!createdIds.includes(copyId));
+ assert.equal(await page.getByLabel('X',{exact:true}).inputValue(),'140');
+ assert.equal(await page.getByLabel('W',{exact:true}).inputValue(),'200');
+ assert.ok((await page.locator('[id="'+copyId+'"]').textContent())?.includes('新建文字 <safe>'));
+ await page.locator('.flow-editor').press('Delete');assert.equal(await page.locator('[id="'+copyId+'"]').count(),0);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();assert.equal(await page.locator('[id="'+copyId+'"]').count(),1);
+ await page.getByRole('button',{name:'重做',exact:true}).click();assert.equal(await page.locator('[id="'+copyId+'"]').count(),0);
+ await page.locator('[data-object-id="group"]').click();await page.getByRole('button',{name:'复制对象',exact:true}).click();
+ const groupCopyId=await page.locator('.react-flow__node.selected').getAttribute('data-id');assert.ok(groupCopyId);assert.notEqual(groupCopyId,'group');
+ await page.locator('.flow-editor').press('Shift+ArrowRight');
+ await page.waitForFunction(()=>document.querySelectorAll('marker[id^="canvas-"]').length>=2);
+ const domIds=await page.locator('.rp-widget[id],marker[id]').evaluateAll(nodes=>nodes.map(n=>n.id));assert.equal(new Set(domIds).size,domIds.length);
+ await page.locator('[data-object-id="entry"]').click();await page.getByRole('button',{name:'删除对象',exact:true}).click();
+ for(const id of ['entry','entry-check','free-end'])assert.equal(await page.locator('[id="'+id+'"]').count(),0);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();
+ for(const id of ['entry','entry-check','free-end']){await page.locator('[id="'+id+'"]').waitFor({state:'attached'});assert.equal(await page.locator('[id="'+id+'"]').count(),1);}
+ const objectsDownload=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();await (await objectsDownload).saveAs(join(out,'objects.canvas.json'));
+ await page.reload();await page.getByLabel('页面',{exact:true}).selectOption('objects');
+ await page.getByLabel('打开画布',{exact:true}).setInputFiles(join(out,'objects.canvas.json'));await page.getByRole('status').filter({hasText:'画布已恢复'}).waitFor();
+ assert.equal(await page.locator('[id="'+copyId+'"]').count(),0);
+ assert.ok((await page.locator('[id="'+createdIds[0]+'"]').textContent())?.includes('新建文字 <safe>'));
+ assert.equal(await page.locator('[id="'+groupCopyId+'"]').count(),1);
+ const objectsAgain=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();await (await objectsAgain).saveAs(join(out,'objects-again.canvas.json'));
+ assert.deepEqual(JSON.parse(readFileSync(join(out,'objects-again.canvas.json'),'utf8')),JSON.parse(readFileSync(join(out,'objects.canvas.json'),'utf8')));
  assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
- const report={marqueeSelection:true,multiDrag:true,allAlignments:true,equalGapDistribution:true,batchSaveReload:true,ancestorDeduplication:true,sizeInspector:true,resizeHandles:true,groupResize:true,aspectRatio:true,resizeSaveReload:true,keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
+ const report={objectCreation:true,copyGroupIds:true,deleteCascade:true,objectUndoRedo:true,objectSaveReload:true,marqueeSelection:true,multiDrag:true,allAlignments:true,equalGapDistribution:true,batchSaveReload:true,ancestorDeduplication:true,sizeInspector:true,resizeHandles:true,groupResize:true,aspectRatio:true,resizeSaveReload:true,keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
  writeFileSync(join(out,'validation.json'),JSON.stringify(report,null,2));console.log(report);
 }finally{await browser.close();}

@@ -1,4 +1,6 @@
-import {createElement, useMemo, useRef, useState, type ReactNode} from 'react';
+import {canvasBase} from './canvas-structure.ts';
+import {createCanvasObject,duplicateCanvasObjects,deleteCanvasObjects,type CanvasTool} from './canvas-objects.ts';
+import {createElement, useMemo, useEffect, useRef, useState, type ReactNode} from 'react';
 import {ReactFlow, Controls, Background, NodeResizer, Handle, Position, applyNodeChanges, type Node, type Edge, type NodeProps, type EdgeProps, type NodeChange} from '@xyflow/react';
 import {arrangeSelection,translateSelection,selectionRoots,type CanvasArrange} from './canvas-selection.ts';
 import {materializePage} from './repeater-model.ts';
@@ -82,12 +84,13 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
   }catch(e){setMessage(String(e));}
  };
  const edited=useMemo(()=>editCanvas(page,state),[page,state]),view=useMemo(()=>graph(edited),[edited]),index=canvasIndex(edited);
- const baseline=canvasIndex(page);
+ useEffect(()=>{setSelected(ids=>ids.some(id=>!index.has(id))?ids.filter(id=>index.has(id)):ids);},[edited]);
+ const base=canvasBase(page,state.objects),baseline=canvasIndex(base);
  const resize=(id:string,p:{width:number;height:number;x?:number;y?:number})=>{
   try{commit(resizeCanvasState(page,state,{id,width:p.width,height:p.height},p.x!==undefined&&p.y!==undefined?{x:p.x,y:p.y}:undefined),dragBase!==null&&state!==dragBase);}
   catch(e){setMessage(String(e));}
  };
- const batchMovable=!selected.length||selectionRoots(selected,index).every(id=>canvasMovable(id,index));
+ const batchMovable=!selected.length||selectionRoots(selected.filter(id=>index.has(id)),index).every(id=>canvasMovable(id,index));
  const previousById=new Map(nodeMeta.map(n=>[n.id,n]));
  const nodes=view.nodes.map(n=>{const previous=previousById.get(n.id);return {...n,draggable:n.draggable&&(!selected.includes(n.id)||batchMovable),data:{...n.data,baseline:baseline.get(n.id)?.widget,resizable:selected.length===1&&canvasResizable(n.id,index),lock,onResize:resize,onResizeStart:()=>setDragBase(state),onResizeEnd:()=>setDragBase(null)},measured:previous?.measured,selected:selected.includes(n.id),dragging:previous?.dragging};});
  const changes=(changes:NodeChange<CanvasNode>[])=>{
@@ -102,6 +105,11 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
   commit({...state,moves:[...next.values()]},dragBase!==null&&state!==dragBase);
  };
  const download=()=>{const blob=new Blob([JSON.stringify(saveCanvasState(page,sourceSha256,state),null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=page.id+'.canvas.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setMessage('画布已保存');};
+ const objectAction=(action:'copy'|'delete'|CanvasTool)=>{try{
+  if(action==='copy'){const result=duplicateCanvasObjects(page,state,selected,()=>'canvas-'+crypto.randomUUID());commit(result.state);setSelected(result.ids);}
+  else if(action==='delete'){commit(deleteCanvasObjects(page,state,selected));setSelected([]);}
+  else{const id='canvas-'+crypto.randomUUID();commit(createCanvasObject(page,state,id,action));setSelected([id]);}
+ }catch(e){setMessage(String(e));}};
  const active=selected.length===1?index.get(selected[0])?.widget:undefined;
  const choose=(id:string,add:boolean)=>setSelected(previous=>add?previous.includes(id)?previous.filter(x=>x!==id):[...previous,id]:[id]);
  const arrange=(mode:CanvasArrange)=>{try{commit(arrangeSelection(page,state,selected,mode));}catch(e){setMessage(String(e));}};
@@ -113,6 +121,8 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
    if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){
     e.preventDefault();e.stopPropagation();setCursor(c=>Math.max(0,Math.min(history.length-1,c+(e.shiftKey?1:-1))));return;
    }
+   if((e.key==='Delete'||e.key==='Backspace')&&selected.length){e.preventDefault();e.stopPropagation();objectAction('delete');return;}
+   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='d'&&selected.length){e.preventDefault();e.stopPropagation();objectAction('copy');return;}
    const direction:Record<string,[number,number]>={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};
    const delta=direction[e.key];
    if(!delta||e.metaKey||e.ctrlKey||e.altKey||!selected.length)return;
@@ -124,7 +134,10 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
   <button disabled={cursor===0} onClick={()=>setCursor(cursor-1)}>撤销</button><button disabled={cursor===history.length-1} onClick={()=>setCursor(cursor+1)}>重做</button>
   <label><input type="checkbox" checked={snap} onChange={e=>setSnap(e.target.checked)}/>网格吸附</label><span role="status">{message}</span></div>
   <div className="flow-workspace">
-  <aside className="flow-outline" aria-label="对象目录">{outline(page.widgets)}</aside>
+  <aside className="flow-outline" aria-label="对象目录">
+   {([['text','新增文字'],['rectangle','新增矩形'],['ellipse','新增椭圆'],['decision','新增判断'],['button','新增按钮']] as [CanvasTool,string][]).map(([tool,label])=><button key={tool} onClick={()=>objectAction(tool)}>{label}</button>)}
+   <button disabled={!selected.length} onClick={()=>objectAction('copy')}>复制对象</button><button disabled={!selected.length} onClick={()=>objectAction('delete')}>删除对象</button>
+   {outline(base.widgets)}</aside>
   <div className="flow-surface" style={{background:page.background}}>
    <ReactFlow key={revision} nodes={nodes} edges={view.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={changes} onNodeClick={(e,n)=>{const previous=clickSelection.current;if(e.shiftKey||e.metaKey||e.ctrlKey)setSelected(previous.includes(n.id)?previous.filter(id=>id!==n.id):[...previous,n.id]);else setSelected([n.id]);}} onNodeDragStart={()=>setDragBase(state)} onNodeDragStop={()=>setDragBase(null)} onSelectionDragStart={()=>setDragBase(state)} onSelectionDragStop={()=>setDragBase(null)} onPaneClick={()=>setSelected([])} multiSelectionKeyCode={['Shift','Meta','Control']} snapToGrid={snap} snapGrid={[10,10]} defaultViewport={{x:0,y:0,zoom:1}} minZoom={0.1} maxZoom={4} nodeDragThreshold={0} nodesConnectable={false} deleteKeyCode={null} elevateNodesOnSelect={false} elevateEdgesOnSelect={false} zIndexMode="manual" onError={(_code,message)=>setMessage(message)}><Background gap={10}/><Controls showInteractive={false}/></ReactFlow>
   </div>

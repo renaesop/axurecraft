@@ -1,12 +1,12 @@
 import {createElement, useMemo, useState, type ReactNode} from 'react';
-import {ReactFlow, Controls, Background, Handle, Position, applyNodeChanges, type Node, type Edge, type NodeProps, type EdgeProps, type NodeChange} from '@xyflow/react';
+import {ReactFlow, Controls, Background, NodeResizer, Handle, Position, applyNodeChanges, type Node, type Edge, type NodeProps, type EdgeProps, type NodeChange} from '@xyflow/react';
 import {materializePage} from './repeater-model.ts';
 import type {Page, Widget} from './model.ts';
 import {widgetElement, type ElementNode} from './render-tree.ts';
 import {reactAttribute,reactStyle} from './react-props.ts';
-import {canvasIndex,canvasMovable,canvasTextEditable,editCanvas,saveCanvasState,restoreCanvasState,type CanvasState} from './flow-canvas-model.ts';
+import {canvasIndex,canvasMovable,canvasResizable,resizeCanvasState,canvasTextEditable,editCanvas,saveCanvasState,restoreCanvasState,type CanvasState} from './flow-canvas-model.ts';
 
-type CanvasNode=Node<{widget?:Widget},'widget'|'anchor'>;
+type CanvasNode=Node<{widget?:Widget; baseline?:Widget; resizable?:boolean; lock?:boolean; onResize?:(id:string,p:{x:number;y:number;width:number;height:number})=>void; onResizeStart?:()=>void; onResizeEnd?:()=>void},'widget'|'anchor'>;
 type CanvasEdge=Edge<{widget:Widget;x:number;y:number},'native'>;
 /** Render the shared structured tree with React, without HTML injection or prototype events. */
 function element(node:ElementNode|string,key:number|string):ReactNode {
@@ -19,12 +19,20 @@ function element(node:ElementNode|string,key:number|string):ReactNode {
  if(['input','br','img'].includes(node.tag))return createElement(node.tag,props);
  return createElement(node.tag,props,...node.children.map(element));
 }
-function WidgetPaint({widget}:{widget:Widget}) {
+function WidgetPaint({widget,baseline}:{widget:Widget;baseline?:Widget}) {
  const tree=widgetElement({...widget,x:0,y:0,children:widget.kind==='group'?[]:widget.children});
+ if(baseline&&!widget.connection&&(baseline.width!==widget.width||baseline.height!==widget.height)){
+  for(const child of tree.children)if(typeof child!=='string'&&child.tag==='svg'){
+   child.attrs.width=Number(child.attrs.width)*widget.width/baseline.width;
+   child.attrs.height=Number(child.attrs.height)*widget.height/baseline.height;
+   child.attrs.preserveAspectRatio='none';
+  }
+ }
  return <div style={{pointerEvents:'none'}}>{element(tree,widget.id)}</div>;
 }
-function CanvasWidget({data}:NodeProps<CanvasNode>){return <>
- {data.widget&&<WidgetPaint widget={data.widget}/>}
+function CanvasWidget({id,data,selected}:NodeProps<CanvasNode>){return <>
+ {data.resizable&&<NodeResizer isVisible={selected} minWidth={1} minHeight={1} keepAspectRatio={data.lock} onResizeStart={data.onResizeStart} onResize={(_e,p)=>data.onResize?.(id,p)} onResizeEnd={data.onResizeEnd}/>}
+ {data.widget&&<WidgetPaint widget={data.widget} baseline={data.baseline}/>}
  <Handle type="source" position={Position.Top} id="out" style={{opacity:0,pointerEvents:'none'}}/>
  <Handle type="target" position={Position.Top} id="in" style={{opacity:0,pointerEvents:'none'}}/>
  </>;}
@@ -61,7 +69,7 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
  const empty:CanvasState={moves:[],texts:[]};
  const [history,setHistory]=useState<CanvasState[]>([empty]),[cursor,setCursor]=useState(0);
  const state=history[cursor],moves=state.moves;
- const [message,setMessage]=useState(''),[revision,setRevision]=useState(0),[selected,setSelected]=useState(''),[snap,setSnap]=useState(false);
+ const [message,setMessage]=useState(''),[revision,setRevision]=useState(0),[selected,setSelected]=useState(''),[snap,setSnap]=useState(false),[lock,setLock]=useState(false);
  const [nodeMeta,setNodeMeta]=useState<CanvasNode[]>([]);
  const [dragBase,setDragBase]=useState<CanvasState|null>(null);
  const commit=(next:CanvasState,replace=false)=>{
@@ -72,10 +80,16 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
   }catch(e){setMessage(String(e));}
  };
  const edited=useMemo(()=>editCanvas(page,state),[page,state]),view=useMemo(()=>graph(edited),[edited]),index=canvasIndex(edited);
+ const baseline=canvasIndex(page);
+ const resize=(id:string,p:{width:number;height:number;x?:number;y?:number})=>{
+  try{commit(resizeCanvasState(page,state,{id,width:p.width,height:p.height},p.x!==undefined&&p.y!==undefined?{x:p.x,y:p.y}:undefined),dragBase!==null&&state!==dragBase);}
+  catch(e){setMessage(String(e));}
+ };
  const previousById=new Map(nodeMeta.map(n=>[n.id,n]));
- const nodes=view.nodes.map(n=>{const previous=previousById.get(n.id);return {...n,measured:previous?.measured,selected:n.id===selected,dragging:previous?.dragging};});
+ const nodes=view.nodes.map(n=>{const previous=previousById.get(n.id);return {...n,data:{...n.data,baseline:baseline.get(n.id)?.widget,resizable:canvasResizable(n.id,index),lock,onResize:resize,onResizeStart:()=>setDragBase(state),onResizeEnd:()=>setDragBase(null)},measured:previous?.measured,selected:n.id===selected,dragging:previous?.dragging};});
  const changes=(changes:NodeChange<CanvasNode>[])=>{
   setNodeMeta(applyNodeChanges(changes,nodes));
+  if(changes.some(c=>c.type==='dimensions'&&c.resizing!==undefined))return;
   const positions=changes.filter(c=>c.type==='position'&&c.position);
   if(!positions.length)return;
   const next=new Map(moves.map(m=>[m.id,m]));for(const c of positions)if(c.type==='position'&&c.position)next.set(c.id,{id:c.id,...c.position});
@@ -110,6 +124,9 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
    {active?<><strong>{active.name||active.id}</strong>
    <p>坐标相对父容器</p>
    {(['x','y'] as const).map(axis=><label key={axis}>{axis.toUpperCase()}<input aria-label={axis.toUpperCase()} type="number" disabled={!canvasMovable(active.id,index)} key={active.id+':'+active[axis]} defaultValue={active[axis]} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}} onBlur={e=>{const n=e.target.valueAsNumber;e.target.value=String(active[axis]);if(!Number.isFinite(n))return;const next=new Map(moves.map(m=>[m.id,m]));next.set(active.id,{id:active.id,x:active.x,y:active.y,[axis]:n});commit({...state,moves:[...next.values()]});}}/></label>)}
+   {(['width','height'] as const).map(axis=><label key={axis}>{axis==='width'?'W':'H'}<input aria-label={axis==='width'?'W':'H'} type="number" min={1} disabled={!canvasResizable(active.id,index)} key={active.id+':'+active[axis]} defaultValue={active[axis]} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}} onBlur={e=>{const n=e.target.valueAsNumber;e.target.value=String(active[axis]);if(!Number.isFinite(n)||n<1){setMessage('尺寸必须大于等于 1');return;}resize(active.id,{width:axis==='width'?n:lock?active.width*n/active.height:active.width,height:axis==='height'?n:lock?active.height*n/active.width:active.height});}}/></label>)}
+   <label><input type="checkbox" checked={lock} onChange={e=>setLock(e.target.checked)}/>锁定宽高比</label>
+   {!canvasResizable(active.id,index)&&<p>此对象暂不支持尺寸编辑</p>}
    {!canvasMovable(active.id,index)&&<p>此对象的位置为只读</p>}
    {active.content.flatMap((c,ci)=>c.kind==='text'?c.paragraphs.flatMap((p,pi)=>p.runs.map((run,ri)=><label key={ci+':'+pi+':'+ri}>文字 {ci+1}.{pi+1}.{ri+1}<textarea aria-label={'文字 '+(ci+1)+'.'+(pi+1)+'.'+(ri+1)} disabled={!canvasTextEditable(active.id,index)} value={run.text} onChange={e=>{const edit={id:active.id,content:ci,paragraph:pi,run:ri,text:e.target.value};commit({...state,texts:[...state.texts.filter(t=>!(t.id===edit.id&&t.content===ci&&t.paragraph===pi&&t.run===ri)),edit]});}}/></label>)):[])}
    </>:<p>选择画布对象或目录项后编辑。拖动对象移动，拖动空白处平移，滚轮缩放。</p>}

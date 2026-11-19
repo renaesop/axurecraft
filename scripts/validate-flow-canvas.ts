@@ -4,14 +4,14 @@ import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright-core';
 import {PNG} from 'pngjs';
-import {flowCanvasCase} from '../tests/fixtures/flow-canvas.ts';
+import {canvasResizeCase} from '../tests/fixtures/canvas-resize.ts';
 import {writeFlowCanvas} from '../src/flow-canvas-export.ts';
 import {parseSemanticProject} from '../src/semantic.ts';
-import {canvasIndex,moveCanvas} from '../src/flow-canvas-model.ts';
+import {canvasIndex,moveCanvas,editCanvas,resizeCanvasState} from '../src/flow-canvas-model.ts';
 import {convertRp9} from '../src/convert.ts';
 import {connectorLabelsFile} from '../tests/fixtures/connector-labels.ts';
 const project=parseSemanticProject(readFileSync('examples/hello.project.json','utf8'));
-const fixture=flowCanvasCase(),native=convertRp9(connectorLabelsFile()).project.pages[0];native.id='native';native.name='原生连线';
+const fixture=canvasResizeCase(),native=convertRp9(connectorLabelsFile()).project.pages[0];native.id='native';native.name='原生连线';
 project.pages=[fixture,native];const out=resolve('output/flow-canvas-check');mkdirSync(out,{recursive:true});
 await writeFlowCanvas(project,out);
 writeFileSync(join(out,'project.json'),JSON.stringify(project,null,2));
@@ -116,6 +116,60 @@ try{
  const textAgain=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();
  await (await textAgain).saveAs(join(out,'text-again.canvas.json'));
  assert.deepEqual(JSON.parse(readFileSync(join(out,'text-again.canvas.json'),'utf8')),JSON.parse(readFileSync(join(out,'text.canvas.json'),'utf8')));
+
+ await page.getByRole('button',{name:'恢复原布局',exact:true}).click();
+ await page.locator('[data-object-id="entry"]').click();
+ await page.getByLabel('锁定宽高比',{exact:true}).check();
+ await page.getByLabel('W',{exact:true}).fill('280');await page.getByLabel('W',{exact:true}).press('Enter');
+ let resizeState=resizeCanvasState(fixture,{moves:[],texts:[]},{id:'entry',width:280,height:88});
+ await verifyGeometry(editCanvas(fixture,resizeState));
+ assert.equal(await page.getByLabel('H',{exact:true}).inputValue(),'88');
+ const painted=await page.locator('#entry svg').first().boundingBox();assert.ok(painted);assert.ok(Math.abs(painted.width-276)<.75,'vector viewport fills resized node inside its 2px border: '+painted.width);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await verifyGeometry();
+ await page.getByRole('button',{name:'重做',exact:true}).click();await verifyGeometry(editCanvas(fixture,resizeState));
+ await page.getByLabel('W',{exact:true}).fill('0');await page.getByLabel('W',{exact:true}).press('Enter');
+ assert.equal(await page.getByLabel('W',{exact:true}).inputValue(),'280');await verifyGeometry(editCanvas(fixture,resizeState));
+ await page.getByLabel('锁定宽高比',{exact:true}).uncheck();
+ const resizeHandle=page.locator('[data-id="entry"] .react-flow__resize-control.handle.bottom.right');
+ const handleRect=await resizeHandle.boundingBox();assert.ok(handleRect);
+ await page.mouse.move(handleRect.x+handleRect.width/2,handleRect.y+handleRect.height/2);await page.mouse.down();
+ await page.mouse.move(handleRect.x+handleRect.width/2+40,handleRect.y+handleRect.height/2+20,{steps:10});await page.mouse.up();
+ resizeState=resizeCanvasState(fixture,resizeState,{id:'entry',width:320,height:108});
+ assert.equal(await page.getByLabel('W',{exact:true}).inputValue(),'320');
+ await verifyGeometry(editCanvas(fixture,resizeState));
+ await page.getByRole('button',{name:'撤销',exact:true}).click();
+ assert.equal(await page.getByLabel('W',{exact:true}).inputValue(),'280');
+ await page.getByRole('button',{name:'重做',exact:true}).click();
+ assert.equal(await page.getByLabel('W',{exact:true}).inputValue(),'320');
+
+ const topLeft=await page.locator('[data-id="entry"] .react-flow__resize-control.handle.top.left').boundingBox();assert.ok(topLeft);
+ await page.mouse.move(topLeft.x+topLeft.width/2,topLeft.y+topLeft.height/2);await page.mouse.down();
+ await page.mouse.move(topLeft.x+topLeft.width/2-20,topLeft.y+topLeft.height/2-10,{steps:8});await page.mouse.up();
+ const topLeftState=resizeCanvasState(fixture,resizeState,{id:'entry',width:340,height:118},{x:280,y:10});
+ await verifyGeometry(editCanvas(fixture,topLeftState));
+ assert.equal(await page.getByLabel('X',{exact:true}).inputValue(),'280');
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await verifyGeometry(editCanvas(fixture,resizeState));
+ assert.equal(await page.getByLabel('X',{exact:true}).inputValue(),'300');
+ const baselineGroup=canvasIndex(fixture).get('group')!.widget;
+ await page.locator('[data-object-id="group"]').click();
+ await page.getByLabel('锁定宽高比',{exact:true}).check();
+ await page.getByLabel('W',{exact:true}).fill(String(baselineGroup.width*1.25));await page.getByLabel('W',{exact:true}).press('Enter');
+ resizeState=resizeCanvasState(fixture,resizeState,{id:'group',width:baselineGroup.width*1.25,height:baselineGroup.height*1.25});
+ await verifyGeometry(editCanvas(fixture,resizeState));
+
+ await page.getByLabel('锁定宽高比',{exact:true}).uncheck();
+ const groupHandle=await page.locator('[data-id="group"] .react-flow__resize-control.handle.bottom.right').boundingBox();assert.ok(groupHandle);
+ await page.mouse.move(groupHandle.x+groupHandle.width/2,groupHandle.y+groupHandle.height/2);await page.mouse.down();
+ await page.mouse.move(groupHandle.x+groupHandle.width/2+20,groupHandle.y+groupHandle.height/2+10,{steps:8});await page.mouse.up();
+ const groupDragState=resizeCanvasState(fixture,resizeState,{id:'group',width:baselineGroup.width*1.25+20,height:baselineGroup.height*1.25+10});
+ await verifyGeometry(editCanvas(fixture,groupDragState));
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await verifyGeometry(editCanvas(fixture,resizeState));
+ await page.locator('[data-object-id="table"]').click();assert.equal(await page.getByLabel('W',{exact:true}).isDisabled(),true);
+ const sizedFile=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();await (await sizedFile).saveAs(join(out,'sized.canvas.json'));
+ await page.reload();await page.getByLabel('打开画布',{exact:true}).setInputFiles(join(out,'sized.canvas.json'));
+ await page.getByRole('status').filter({hasText:'画布已恢复'}).waitFor();await verifyGeometry(editCanvas(fixture,resizeState));
+ const sizeAgain=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();await (await sizeAgain).saveAs(join(out,'sized-again.canvas.json'));
+ assert.deepEqual(JSON.parse(readFileSync(join(out,'sized-again.canvas.json'),'utf8')),JSON.parse(readFileSync(join(out,'sized.canvas.json'),'utf8')));
  await page.getByLabel('页面',{exact:true}).selectOption('native');await page.locator(`[id="${native.widgets[0].id}"] svg > path`).waitFor({state:'attached'});await verifyGeometry(native);
  for(const w of native.widgets){const g=w.connection!.geometry!;if(!g.label)continue;const text=w.content.find(c=>c.kind==='text');if(!text)continue;const r=await page.locator(`[id="${w.id}"] .rp-text`).boundingBox();assert.ok(r);assert.ok(Math.abs(r.x+r.width/2-surface.x-g.label.x)<.75);assert.ok(Math.abs(r.y+r.height/2-surface.y-g.label.y)<.75);}
 
@@ -125,6 +179,6 @@ try{
  assert.ok((await page.locator('[id="'+labelWidget.id+'"]').textContent())?.includes('新的分支条件'));
  await verifyGeometry(native);
  assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
- const report={keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
+ const report={sizeInspector:true,resizeHandles:true,groupResize:true,aspectRatio:true,resizeSaveReload:true,keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
  writeFileSync(join(out,'validation.json'),JSON.stringify(report,null,2));console.log(report);
 }finally{await browser.close();}

@@ -1,10 +1,10 @@
 import {createElement, useMemo, useState, type ReactNode} from 'react';
-import {ReactFlow, Controls, Handle, Position, applyNodeChanges, type Node, type Edge, type NodeProps, type EdgeProps, type NodeChange} from '@xyflow/react';
+import {ReactFlow, Controls, Background, Handle, Position, applyNodeChanges, type Node, type Edge, type NodeProps, type EdgeProps, type NodeChange} from '@xyflow/react';
 import {materializePage} from './repeater-model.ts';
 import type {Page, Widget} from './model.ts';
 import {widgetElement, type ElementNode} from './render-tree.ts';
 import {reactAttribute,reactStyle} from './react-props.ts';
-import {canvasIndex,canvasMovable,moveCanvas,saveCanvas,restoreCanvas,type CanvasMove} from './flow-canvas-model.ts';
+import {canvasIndex,canvasMovable,canvasTextEditable,editCanvas,saveCanvasState,restoreCanvasState,type CanvasState} from './flow-canvas-model.ts';
 
 type CanvasNode=Node<{widget?:Widget},'widget'|'anchor'>;
 type CanvasEdge=Edge<{widget:Widget;x:number;y:number},'native'>;
@@ -57,23 +57,63 @@ function graph(page:Page):{nodes:CanvasNode[];edges:CanvasEdge[]} {
  return {nodes,edges};
 }
 export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
- const [moves,setMoves]=useState<CanvasMove[]>([]),[message,setMessage]=useState(''),[revision,setRevision]=useState(0);
+
+ const empty:CanvasState={moves:[],texts:[]};
+ const [history,setHistory]=useState<CanvasState[]>([empty]),[cursor,setCursor]=useState(0);
+ const state=history[cursor],moves=state.moves;
+ const [message,setMessage]=useState(''),[revision,setRevision]=useState(0),[selected,setSelected]=useState(''),[snap,setSnap]=useState(false);
  const [nodeMeta,setNodeMeta]=useState<CanvasNode[]>([]);
- const edited=useMemo(()=>moveCanvas(page,moves),[page,moves]),view=useMemo(()=>graph(edited),[edited]);
+ const [dragBase,setDragBase]=useState<CanvasState|null>(null);
+ const commit=(next:CanvasState,replace=false)=>{
+  try{editCanvas(page,next);if(JSON.stringify(next)===JSON.stringify(state))return;
+   if(replace){setHistory(h=>h.map((s,i)=>i===cursor?next:s));}
+   else {setHistory([...history.slice(0,cursor+1),next]);setCursor(cursor+1);}
+   setMessage('');
+  }catch(e){setMessage(String(e));}
+ };
+ const edited=useMemo(()=>editCanvas(page,state),[page,state]),view=useMemo(()=>graph(edited),[edited]),index=canvasIndex(edited);
  const previousById=new Map(nodeMeta.map(n=>[n.id,n]));
- const nodes=view.nodes.map(n=>{const previous=previousById.get(n.id);return {...n,measured:previous?.measured,selected:previous?.selected,dragging:previous?.dragging};});
+ const nodes=view.nodes.map(n=>{const previous=previousById.get(n.id);return {...n,measured:previous?.measured,selected:n.id===selected,dragging:previous?.dragging};});
  const changes=(changes:NodeChange<CanvasNode>[])=>{
   setNodeMeta(applyNodeChanges(changes,nodes));
   const positions=changes.filter(c=>c.type==='position'&&c.position);
   if(!positions.length)return;
-  const next=new Map(moves.map(m=>[m.id,m]));for(const c of positions)if(c.type==='position'&&c.position)next.set(c.id,{id:c.id,...c.position});const result=[...next.values()];
-  try{moveCanvas(page,result);setMoves(result);}catch(e){setMessage(String(e));}
+  const next=new Map(moves.map(m=>[m.id,m]));for(const c of positions)if(c.type==='position'&&c.position)next.set(c.id,{id:c.id,...c.position});
+  commit({...state,moves:[...next.values()]},dragBase!==null&&state!==dragBase);
  };
- const download=()=>{const blob=new Blob([JSON.stringify(saveCanvas(page,sourceSha256,moves),null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=page.id+'.canvas.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setMessage('画布已保存');};
- return <div className="flow-editor">
-  <div className="flow-toolbar"><strong>{page.name}</strong><button onClick={download}>保存画布</button><label>打开画布 <input aria-label="打开画布" type="file" accept=".json" onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{setMoves(restoreCanvas(await file.text(),page,sourceSha256));setRevision(r=>r+1);setMessage('画布已恢复');}catch(error){setMessage(String(error));}}}/></label><button onClick={()=>{setMoves([]);setRevision(r=>r+1);setMessage('已恢复原布局');}}>恢复原布局</button><span role="status">{message}</span></div>
+ const download=()=>{const blob=new Blob([JSON.stringify(saveCanvasState(page,sourceSha256,state),null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=page.id+'.canvas.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setMessage('画布已保存');};
+ const active=index.get(selected)?.widget;
+ const outline=(widgets:Widget[]):ReactNode=><ul>{widgets.map(w=><li key={w.id}><button data-object-id={w.id} aria-pressed={selected===w.id} onClick={()=>setSelected(w.id)}>{w.name||w.id}</button>{w.children?.length?outline(w.children):null}</li>)}</ul>;
+ return <div className="flow-editor" tabIndex={0} onKeyDownCapture={e=>{
+   const target=e.target as HTMLElement;
+   // Preserve native text editing and controls; commands apply only to the canvas.
+   if(target.closest('input,textarea,select,button,[contenteditable=true]')||!(target===e.currentTarget||target.closest('.flow-surface')))return;
+   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){
+    e.preventDefault();e.stopPropagation();setCursor(c=>Math.max(0,Math.min(history.length-1,c+(e.shiftKey?1:-1))));return;
+   }
+   const direction:Record<string,[number,number]>={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};
+   const delta=direction[e.key];
+   if(!delta||e.metaKey||e.ctrlKey||e.altKey||!active||!canvasMovable(active.id,index))return;
+   e.preventDefault();e.stopPropagation();
+   const step=e.shiftKey?10:1,next=new Map(moves.map(m=>[m.id,m]));
+   next.set(active.id,{id:active.id,x:active.x+delta[0]*step,y:active.y+delta[1]*step});commit({...state,moves:[...next.values()]});
+  }}>
+  <div className="flow-toolbar"><strong>{page.name}</strong><button onClick={download}>保存画布</button><label>打开画布 <input aria-label="打开画布" type="file" accept=".json" onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{const next=restoreCanvasState(await file.text(),page,sourceSha256);commit(next);setRevision(r=>r+1);setMessage('画布已恢复');}catch(error){setMessage(String(error));}}}/></label><button onClick={()=>{commit(empty);setRevision(r=>r+1);setMessage('已恢复原布局');}}>恢复原布局</button>
+  <button disabled={cursor===0} onClick={()=>setCursor(cursor-1)}>撤销</button><button disabled={cursor===history.length-1} onClick={()=>setCursor(cursor+1)}>重做</button>
+  <label><input type="checkbox" checked={snap} onChange={e=>setSnap(e.target.checked)}/>网格吸附</label><span role="status">{message}</span></div>
+  <div className="flow-workspace">
+  <aside className="flow-outline" aria-label="对象目录">{outline(page.widgets)}</aside>
   <div className="flow-surface" style={{background:page.background}}>
-   <ReactFlow key={revision} nodes={nodes} edges={view.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={changes} defaultViewport={{x:0,y:0,zoom:1}} minZoom={0.1} maxZoom={4} nodeDragThreshold={0} nodesConnectable={false} deleteKeyCode={null} elevateNodesOnSelect={false} elevateEdgesOnSelect={false} zIndexMode="manual" onError={(_code,message)=>setMessage(message)}><Controls showInteractive={false}/></ReactFlow>
+   <ReactFlow key={revision} nodes={nodes} edges={view.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={changes} onNodeClick={(_e,n)=>setSelected(n.id)} onNodeDragStart={()=>setDragBase(state)} onNodeDragStop={()=>setDragBase(null)} onPaneClick={()=>setSelected('')} snapToGrid={snap} snapGrid={[10,10]} defaultViewport={{x:0,y:0,zoom:1}} minZoom={0.1} maxZoom={4} nodeDragThreshold={0} nodesConnectable={false} deleteKeyCode={null} elevateNodesOnSelect={false} elevateEdgesOnSelect={false} zIndexMode="manual" onError={(_code,message)=>setMessage(message)}><Background gap={10}/><Controls showInteractive={false}/></ReactFlow>
+  </div>
+  <aside className="flow-properties" aria-label="属性">
+   {active?<><strong>{active.name||active.id}</strong>
+   <p>坐标相对父容器</p>
+   {(['x','y'] as const).map(axis=><label key={axis}>{axis.toUpperCase()}<input aria-label={axis.toUpperCase()} type="number" disabled={!canvasMovable(active.id,index)} key={active.id+':'+active[axis]} defaultValue={active[axis]} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}} onBlur={e=>{const n=e.target.valueAsNumber;e.target.value=String(active[axis]);if(!Number.isFinite(n))return;const next=new Map(moves.map(m=>[m.id,m]));next.set(active.id,{id:active.id,x:active.x,y:active.y,[axis]:n});commit({...state,moves:[...next.values()]});}}/></label>)}
+   {!canvasMovable(active.id,index)&&<p>此对象的位置为只读</p>}
+   {active.content.flatMap((c,ci)=>c.kind==='text'?c.paragraphs.flatMap((p,pi)=>p.runs.map((run,ri)=><label key={ci+':'+pi+':'+ri}>文字 {ci+1}.{pi+1}.{ri+1}<textarea aria-label={'文字 '+(ci+1)+'.'+(pi+1)+'.'+(ri+1)} disabled={!canvasTextEditable(active.id,index)} value={run.text} onChange={e=>{const edit={id:active.id,content:ci,paragraph:pi,run:ri,text:e.target.value};commit({...state,texts:[...state.texts.filter(t=>!(t.id===edit.id&&t.content===ci&&t.paragraph===pi&&t.run===ri)),edit]});}}/></label>)):[])}
+   </>:<p>选择画布对象或目录项后编辑。拖动对象移动，拖动空白处平移，滚轮缩放。</p>}
+  </aside>
   </div>
  </div>;
 }

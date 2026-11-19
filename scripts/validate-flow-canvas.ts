@@ -16,7 +16,7 @@ project.pages=[fixture,native];const out=resolve('output/flow-canvas-check');mkd
 await writeFlowCanvas(project,out);
 writeFileSync(join(out,'project.json'),JSON.stringify(project,null,2));
 const browser=await chromium.launch({executablePath:process.env.CHROME_PATH??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
-const page=await browser.newPage({viewport:{width:1200,height:1100},acceptDownloads:true}),errors:string[]=[];
+const page=await browser.newPage({viewport:{width:1600,height:1100},acceptDownloads:true}),errors:string[]=[];
 page.on('pageerror',e=>errors.push(e.message));
 const externalRequests:string[]=[];page.on('request',r=>{if(/^https?:/.test(r.url()))externalRequests.push(r.url());});
 await page.addInitScript(()=>{(window as any).__canvasRoots=[];(window as any).__REACT_DEVTOOLS_GLOBAL_HOOK__={supportsFiber:true,inject(){return 1;},onCommitFiberRoot(_id:number,root:any){(window as any).__canvasRoots=[root];},onCommitFiberUnmount(){},onPostCommitFiberRoot(){}};});
@@ -47,11 +47,11 @@ try{
  };
  await verifyGeometry();const initial=PNG.sync.read(await page.screenshot({path:join(out,'initial.png')}));
  const at=(Math.round(surface.y+100)*initial.width+Math.round(surface.x+370))*4;assert.deepEqual([...initial.data.subarray(at,at+3)],[43,92,136],'vertical edge actually paints, not merely present in DOM');
- const drag=async(id:string,dx:number,dy:number,corner=false)=>{
+ const drag=async(id:string,dx:number,dy:number,corner=false,expectedDx=dx,expectedDy=dy)=>{
   const node=page.locator(`.react-flow__node[data-id="${id}"]`),r=await node.boundingBox();assert.ok(r);
   const x=corner?r.x+8:r.x+r.width/2,y=corner?r.y+r.height-8:r.y+r.height/2;
   await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+dx,y+dy,{steps:12});await page.mouse.up();
-  await page.waitForFunction(({id,x,y})=>{const r=document.querySelector(`.react-flow__node[data-id="${id}"]`)!.getBoundingClientRect();return Math.abs(r.x-x)<.75&&Math.abs(r.y-y)<.75;},{id,x:r.x+dx,y:r.y+dy});
+  await page.waitForFunction(({id,x,y})=>{const r=document.querySelector(`.react-flow__node[data-id="${id}"]`)!.getBoundingClientRect();return Math.abs(r.x-x)<.75&&Math.abs(r.y-y)<.75;},{id,x:r.x+expectedDx,y:r.y+expectedDy});
  };
  await drag('entry',40,30);let moves=[{id:'entry',x:340,y:50}];await verifyGeometry(moveCanvas(fixture,moves));
  const group=expected.get('group')!.widget;await drag('group',50,-20,true);moves.push({id:'group',x:group.x+50,y:group.y-20});await verifyGeometry(moveCanvas(fixture,moves));
@@ -67,9 +67,64 @@ try{
  writeFileSync(join(out,'conflict.canvas.json'),JSON.stringify({...saved,sourceSha256:'other'}));
  await page.getByLabel('打开画布',{exact:true}).setInputFiles(join(out,'conflict.canvas.json'));await page.getByRole('status').filter({hasText:'baseline conflict'}).waitFor();await verifyGeometry(moveCanvas(fixture,moves));
  await page.getByRole('button',{name:'恢复原布局',exact:true}).click();await page.locator('#entry-check svg > path').waitFor({state:'attached'});await verifyGeometry();
+
+ // One drag is one undo step, even though many pointer moves were delivered.
+ await drag('entry',40,30);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await verifyGeometry();
+ await page.getByRole('button',{name:'重做',exact:true}).click();await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:340,y:50}]));
+ await page.locator('[data-object-id="entry"]').click();
+ await page.getByLabel('X',{exact:true}).fill('360');await page.getByLabel('X',{exact:true}).press('Enter');
+ await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:360,y:50}]));
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:340,y:50}]));
+ await page.getByRole('button',{name:'恢复原布局',exact:true}).click();
+
+ await page.locator('[data-object-id="entry"]').click();
+ await page.locator('.flow-editor').press('ArrowRight');
+ await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:301,y:20}]));
+ await page.locator('.flow-editor').press('Shift+ArrowDown');
+ await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:301,y:30}]));
+ await page.locator('.flow-editor').press('Control+z');
+ await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:301,y:20}]));
+ await page.locator('.flow-editor').press('Control+Shift+z');
+ await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:301,y:30}]));
+ await page.getByLabel('X',{exact:true}).focus();
+ await page.getByLabel('X',{exact:true}).press('ArrowRight');
+ await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:301,y:30}]));
+ await page.getByRole('button',{name:'恢复原布局',exact:true}).click();
+ await page.getByLabel('网格吸附',{exact:true}).check();
+ await drag('entry',43,33,false,40,30);await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:340,y:50}]));
+ await page.getByLabel('网格吸附',{exact:true}).uncheck();
+ await page.locator('[data-object-id="isolated"]').click();
+ await page.getByLabel('文字 1.1.1',{exact:true}).fill('编辑后的说明 <script>');
+ assert.ok((await page.locator('#isolated').textContent())?.includes('编辑后的说明 <script>'));
+ assert.ok((await page.locator('#isolated').textContent())?.includes('（可编辑）'));
+ await page.getByRole('button',{name:'撤销',exact:true}).click();
+ assert.ok((await page.locator('#isolated').textContent())?.includes('没有连线的说明'));
+ await page.getByRole('button',{name:'重做',exact:true}).click();
+ await page.locator('[data-object-id="cell-0"]').click();
+ assert.equal(await page.getByLabel('X',{exact:true}).isDisabled(),true);
+ await page.getByLabel('文字 1.1.1',{exact:true}).fill('编辑的单元格');
+ assert.ok((await page.locator('#cell-0').textContent())?.includes('编辑的单元格'));
+ const editDownload=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();
+ await (await editDownload).saveAs(join(out,'text.canvas.json'));
+ await page.reload();
+ await page.getByLabel('打开画布',{exact:true}).setInputFiles(join(out,'text.canvas.json'));
+ await page.getByRole('status').filter({hasText:'画布已恢复'}).waitFor();
+ assert.ok((await page.locator('#isolated').textContent())?.includes('编辑后的说明 <script>'));
+ assert.ok((await page.locator('#cell-0').textContent())?.includes('编辑的单元格'));
+ await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:340,y:50}]));
+ const textAgain=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();
+ await (await textAgain).saveAs(join(out,'text-again.canvas.json'));
+ assert.deepEqual(JSON.parse(readFileSync(join(out,'text-again.canvas.json'),'utf8')),JSON.parse(readFileSync(join(out,'text.canvas.json'),'utf8')));
  await page.getByLabel('页面',{exact:true}).selectOption('native');await page.locator(`[id="${native.widgets[0].id}"] svg > path`).waitFor({state:'attached'});await verifyGeometry(native);
  for(const w of native.widgets){const g=w.connection!.geometry!;if(!g.label)continue;const text=w.content.find(c=>c.kind==='text');if(!text)continue;const r=await page.locator(`[id="${w.id}"] .rp-text`).boundingBox();assert.ok(r);assert.ok(Math.abs(r.x+r.width/2-surface.x-g.label.x)<.75);assert.ok(Math.abs(r.y+r.height/2-surface.y-g.label.y)<.75);}
+
+ const labelWidget=native.widgets.find(w=>w.content.some(c=>c.kind==='text'))!;
+ await page.locator('[data-object-id="'+labelWidget.id+'"]').click();
+ await page.locator('.flow-properties textarea').first().fill('新的分支条件');
+ assert.ok((await page.locator('[id="'+labelWidget.id+'"]').textContent())?.includes('新的分支条件'));
+ await verifyGeometry(native);
  assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
- const report={wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
+ const report={keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
  writeFileSync(join(out,'validation.json'),JSON.stringify(report,null,2));console.log(report);
 }finally{await browser.close();}

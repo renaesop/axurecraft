@@ -77,6 +77,20 @@ try{
  await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:360,y:50}]));
  await page.getByRole('button',{name:'撤销',exact:true}).click();await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:340,y:50}]));
  await page.getByRole('button',{name:'恢复原布局',exact:true}).click();
+
+ await page.locator('[data-object-id="entry"]').click();
+ await page.locator('.flow-editor').press('ArrowRight');
+ await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:301,y:20}]));
+ await page.locator('.flow-editor').press('Shift+ArrowDown');
+ await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:301,y:30}]));
+ await page.locator('.flow-editor').press('Control+z');
+ await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:301,y:20}]));
+ await page.locator('.flow-editor').press('Control+Shift+z');
+ await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:301,y:30}]));
+ await page.getByLabel('X',{exact:true}).focus();
+ await page.getByLabel('X',{exact:true}).press('ArrowRight');
+ await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:301,y:30}]));
+ await page.getByRole('button',{name:'恢复原布局',exact:true}).click();
  await page.getByLabel('网格吸附',{exact:true}).check();
  await drag('entry',43,33,false,40,30);await verifyGeometry(moveCanvas(fixture,[{id:'entry',x:340,y:50}]));
  await page.getByLabel('网格吸附',{exact:true}).uncheck();
@@ -111,6 +125,6 @@ try{
  assert.ok((await page.locator('[id="'+labelWidget.id+'"]').textContent())?.includes('新的分支条件'));
  await verifyGeometry(native);
  assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
- const report={textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
+ const report={keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
  writeFileSync(join(out,'validation.json'),JSON.stringify(report,null,2));console.log(report);
 }finally{await browser.close();}

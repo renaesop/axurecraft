@@ -84,7 +84,20 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
  const download=()=>{const blob=new Blob([JSON.stringify(saveCanvasState(page,sourceSha256,state),null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=page.id+'.canvas.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setMessage('画布已保存');};
  const active=index.get(selected)?.widget;
  const outline=(widgets:Widget[]):ReactNode=><ul>{widgets.map(w=><li key={w.id}><button data-object-id={w.id} aria-pressed={selected===w.id} onClick={()=>setSelected(w.id)}>{w.name||w.id}</button>{w.children?.length?outline(w.children):null}</li>)}</ul>;
- return <div className="flow-editor">
+ return <div className="flow-editor" tabIndex={0} onKeyDownCapture={e=>{
+   const target=e.target as HTMLElement;
+   // Preserve native text editing and controls; commands apply only to the canvas.
+   if(target.closest('input,textarea,select,button,[contenteditable=true]')||!(target===e.currentTarget||target.closest('.flow-surface')))return;
+   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){
+    e.preventDefault();e.stopPropagation();setCursor(c=>Math.max(0,Math.min(history.length-1,c+(e.shiftKey?1:-1))));return;
+   }
+   const direction:Record<string,[number,number]>={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};
+   const delta=direction[e.key];
+   if(!delta||e.metaKey||e.ctrlKey||e.altKey||!active||!canvasMovable(active.id,index))return;
+   e.preventDefault();e.stopPropagation();
+   const step=e.shiftKey?10:1,next=new Map(moves.map(m=>[m.id,m]));
+   next.set(active.id,{id:active.id,x:active.x+delta[0]*step,y:active.y+delta[1]*step});commit({...state,moves:[...next.values()]});
+  }}>
   <div className="flow-toolbar"><strong>{page.name}</strong><button onClick={download}>保存画布</button><label>打开画布 <input aria-label="打开画布" type="file" accept=".json" onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{const next=restoreCanvasState(await file.text(),page,sourceSha256);commit(next);setRevision(r=>r+1);setMessage('画布已恢复');}catch(error){setMessage(String(error));}}}/></label><button onClick={()=>{commit(empty);setRevision(r=>r+1);setMessage('已恢复原布局');}}>恢复原布局</button>
   <button disabled={cursor===0} onClick={()=>setCursor(cursor-1)}>撤销</button><button disabled={cursor===history.length-1} onClick={()=>setCursor(cursor+1)}>重做</button>
   <label><input type="checkbox" checked={snap} onChange={e=>setSnap(e.target.checked)}/>网格吸附</label><span role="status">{message}</span></div>

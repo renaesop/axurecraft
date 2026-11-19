@@ -1,5 +1,6 @@
-import {createElement, useMemo, useState, type ReactNode} from 'react';
+import {createElement, useMemo, useRef, useState, type ReactNode} from 'react';
 import {ReactFlow, Controls, Background, NodeResizer, Handle, Position, applyNodeChanges, type Node, type Edge, type NodeProps, type EdgeProps, type NodeChange} from '@xyflow/react';
+import {arrangeSelection,translateSelection,selectionRoots,type CanvasArrange} from './canvas-selection.ts';
 import {materializePage} from './repeater-model.ts';
 import type {Page, Widget} from './model.ts';
 import {widgetElement, type ElementNode} from './render-tree.ts';
@@ -69,7 +70,8 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
  const empty:CanvasState={moves:[],texts:[]};
  const [history,setHistory]=useState<CanvasState[]>([empty]),[cursor,setCursor]=useState(0);
  const state=history[cursor],moves=state.moves;
- const [message,setMessage]=useState(''),[revision,setRevision]=useState(0),[selected,setSelected]=useState(''),[snap,setSnap]=useState(false),[lock,setLock]=useState(false);
+ const [message,setMessage]=useState(''),[revision,setRevision]=useState(0),[selected,setSelected]=useState<string[]>([]),[snap,setSnap]=useState(false),[lock,setLock]=useState(false);
+ const clickSelection=useRef<string[]>([]);
  const [nodeMeta,setNodeMeta]=useState<CanvasNode[]>([]);
  const [dragBase,setDragBase]=useState<CanvasState|null>(null);
  const commit=(next:CanvasState,replace=false)=>{
@@ -85,20 +87,26 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
   try{commit(resizeCanvasState(page,state,{id,width:p.width,height:p.height},p.x!==undefined&&p.y!==undefined?{x:p.x,y:p.y}:undefined),dragBase!==null&&state!==dragBase);}
   catch(e){setMessage(String(e));}
  };
+ const batchMovable=!selected.length||selectionRoots(selected,index).every(id=>canvasMovable(id,index));
  const previousById=new Map(nodeMeta.map(n=>[n.id,n]));
- const nodes=view.nodes.map(n=>{const previous=previousById.get(n.id);return {...n,data:{...n.data,baseline:baseline.get(n.id)?.widget,resizable:canvasResizable(n.id,index),lock,onResize:resize,onResizeStart:()=>setDragBase(state),onResizeEnd:()=>setDragBase(null)},measured:previous?.measured,selected:n.id===selected,dragging:previous?.dragging};});
+ const nodes=view.nodes.map(n=>{const previous=previousById.get(n.id);return {...n,draggable:n.draggable&&(!selected.includes(n.id)||batchMovable),data:{...n.data,baseline:baseline.get(n.id)?.widget,resizable:selected.length===1&&canvasResizable(n.id,index),lock,onResize:resize,onResizeStart:()=>setDragBase(state),onResizeEnd:()=>setDragBase(null)},measured:previous?.measured,selected:selected.includes(n.id),dragging:previous?.dragging};});
  const changes=(changes:NodeChange<CanvasNode>[])=>{
   setNodeMeta(applyNodeChanges(changes,nodes));
+  const selectionChanges=changes.filter(c=>c.type==='select');
+  if(selectionChanges.length)setSelected(previous=>{const ids=new Set(previous);for(const c of selectionChanges)if(c.type==='select'){if(c.selected)ids.add(c.id);else ids.delete(c.id);}return [...ids];});
   if(changes.some(c=>c.type==='dimensions'&&c.resizing!==undefined))return;
-  const positions=changes.filter(c=>c.type==='position'&&c.position);
+  const positions=changes.filter(c=>c.type==='position').filter(c=>c.position);
   if(!positions.length)return;
-  const next=new Map(moves.map(m=>[m.id,m]));for(const c of positions)if(c.type==='position'&&c.position)next.set(c.id,{id:c.id,...c.position});
+  const roots=new Set(selectionRoots(positions.map(c=>c.id),index));
+  const next=new Map(moves.map(m=>[m.id,m]));for(const c of positions)if(c.type==='position'&&c.position&&roots.has(c.id))next.set(c.id,{id:c.id,...c.position});
   commit({...state,moves:[...next.values()]},dragBase!==null&&state!==dragBase);
  };
  const download=()=>{const blob=new Blob([JSON.stringify(saveCanvasState(page,sourceSha256,state),null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=page.id+'.canvas.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setMessage('画布已保存');};
- const active=index.get(selected)?.widget;
- const outline=(widgets:Widget[]):ReactNode=><ul>{widgets.map(w=><li key={w.id}><button data-object-id={w.id} aria-pressed={selected===w.id} onClick={()=>setSelected(w.id)}>{w.name||w.id}</button>{w.children?.length?outline(w.children):null}</li>)}</ul>;
- return <div className="flow-editor" tabIndex={0} onKeyDownCapture={e=>{
+ const active=selected.length===1?index.get(selected[0])?.widget:undefined;
+ const choose=(id:string,add:boolean)=>setSelected(previous=>add?previous.includes(id)?previous.filter(x=>x!==id):[...previous,id]:[id]);
+ const arrange=(mode:CanvasArrange)=>{try{commit(arrangeSelection(page,state,selected,mode));}catch(e){setMessage(String(e));}};
+ const outline=(widgets:Widget[]):ReactNode=><ul>{widgets.map(w=><li key={w.id}><button data-object-id={w.id} aria-pressed={selected.includes(w.id)} onClick={e=>choose(w.id,e.shiftKey||e.metaKey||e.ctrlKey)}>{w.name||w.id}</button>{w.children?.length?outline(w.children):null}</li>)}</ul>;
+ return <div className="flow-editor" tabIndex={0} onPointerDownCapture={()=>{clickSelection.current=selected;}} onKeyDownCapture={e=>{
    const target=e.target as HTMLElement;
    // Preserve native text editing and controls; commands apply only to the canvas.
    if(target.closest('input,textarea,select,button,[contenteditable=true]')||!(target===e.currentTarget||target.closest('.flow-surface')))return;
@@ -107,10 +115,10 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
    }
    const direction:Record<string,[number,number]>={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};
    const delta=direction[e.key];
-   if(!delta||e.metaKey||e.ctrlKey||e.altKey||!active||!canvasMovable(active.id,index))return;
+   if(!delta||e.metaKey||e.ctrlKey||e.altKey||!selected.length)return;
    e.preventDefault();e.stopPropagation();
-   const step=e.shiftKey?10:1,next=new Map(moves.map(m=>[m.id,m]));
-   next.set(active.id,{id:active.id,x:active.x+delta[0]*step,y:active.y+delta[1]*step});commit({...state,moves:[...next.values()]});
+   const step=e.shiftKey?10:1;
+   try{commit(translateSelection(page,state,selected,delta[0]*step,delta[1]*step));}catch(error){setMessage(String(error));}
   }}>
   <div className="flow-toolbar"><strong>{page.name}</strong><button onClick={download}>保存画布</button><label>打开画布 <input aria-label="打开画布" type="file" accept=".json" onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{const next=restoreCanvasState(await file.text(),page,sourceSha256);commit(next);setRevision(r=>r+1);setMessage('画布已恢复');}catch(error){setMessage(String(error));}}}/></label><button onClick={()=>{commit(empty);setRevision(r=>r+1);setMessage('已恢复原布局');}}>恢复原布局</button>
   <button disabled={cursor===0} onClick={()=>setCursor(cursor-1)}>撤销</button><button disabled={cursor===history.length-1} onClick={()=>setCursor(cursor+1)}>重做</button>
@@ -118,9 +126,12 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
   <div className="flow-workspace">
   <aside className="flow-outline" aria-label="对象目录">{outline(page.widgets)}</aside>
   <div className="flow-surface" style={{background:page.background}}>
-   <ReactFlow key={revision} nodes={nodes} edges={view.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={changes} onNodeClick={(_e,n)=>setSelected(n.id)} onNodeDragStart={()=>setDragBase(state)} onNodeDragStop={()=>setDragBase(null)} onPaneClick={()=>setSelected('')} snapToGrid={snap} snapGrid={[10,10]} defaultViewport={{x:0,y:0,zoom:1}} minZoom={0.1} maxZoom={4} nodeDragThreshold={0} nodesConnectable={false} deleteKeyCode={null} elevateNodesOnSelect={false} elevateEdgesOnSelect={false} zIndexMode="manual" onError={(_code,message)=>setMessage(message)}><Background gap={10}/><Controls showInteractive={false}/></ReactFlow>
+   <ReactFlow key={revision} nodes={nodes} edges={view.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={changes} onNodeClick={(e,n)=>{const previous=clickSelection.current;if(e.shiftKey||e.metaKey||e.ctrlKey)setSelected(previous.includes(n.id)?previous.filter(id=>id!==n.id):[...previous,n.id]);else setSelected([n.id]);}} onNodeDragStart={()=>setDragBase(state)} onNodeDragStop={()=>setDragBase(null)} onSelectionDragStart={()=>setDragBase(state)} onSelectionDragStop={()=>setDragBase(null)} onPaneClick={()=>setSelected([])} multiSelectionKeyCode={['Shift','Meta','Control']} snapToGrid={snap} snapGrid={[10,10]} defaultViewport={{x:0,y:0,zoom:1}} minZoom={0.1} maxZoom={4} nodeDragThreshold={0} nodesConnectable={false} deleteKeyCode={null} elevateNodesOnSelect={false} elevateEdgesOnSelect={false} zIndexMode="manual" onError={(_code,message)=>setMessage(message)}><Background gap={10}/><Controls showInteractive={false}/></ReactFlow>
   </div>
   <aside className="flow-properties" aria-label="属性">
+   {selected.length>1&&<><p>已选择 {selected.length} 个对象</p><p>按 Shift / Ctrl / Cmd 点击增减选择；Shift 拖动空白处框选。方向键批量移动。</p>
+    {([['left','左对齐'],['center','水平居中'],['right','右对齐'],['top','顶对齐'],['middle','垂直居中'],['bottom','底对齐'],['horizontal','水平等距'],['vertical','垂直等距']] as [CanvasArrange,string][]).map(([mode,label])=><button key={mode} onClick={()=>arrange(mode)}>{label}</button>)}
+   </>}
    {active?<><strong>{active.name||active.id}</strong>
    <p>坐标相对父容器</p>
    {(['x','y'] as const).map(axis=><label key={axis}>{axis.toUpperCase()}<input aria-label={axis.toUpperCase()} type="number" disabled={!canvasMovable(active.id,index)} key={active.id+':'+active[axis]} defaultValue={active[axis]} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}} onBlur={e=>{const n=e.target.valueAsNumber;e.target.value=String(active[axis]);if(!Number.isFinite(n))return;const next=new Map(moves.map(m=>[m.id,m]));next.set(active.id,{id:active.id,x:active.x,y:active.y,[axis]:n});commit({...state,moves:[...next.values()]});}}/></label>)}

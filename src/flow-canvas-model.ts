@@ -1,3 +1,4 @@
+import {canvasBase,type CanvasObjects} from './canvas-structure.ts';
 import type {Page, Widget, CanvasPoint as Point, ConnectorGeometry} from './model.ts';
 import {connectorPath, reattachGeometry} from './connector-geometry.ts';
 
@@ -127,14 +128,14 @@ export function restoreCanvas(json:string,page:Page,sourceSha256:string):CanvasM
 
 /** Individual authored runs retain their original styles, links and paragraphs. */
 export interface CanvasTextEdit {id:string; content:number; paragraph:number; run:number; text:string}
-export interface CanvasState {moves:CanvasMove[]; texts:CanvasTextEdit[]; sizes?:CanvasSize[]}
+export interface CanvasState {moves:CanvasMove[]; texts:CanvasTextEdit[]; sizes?:CanvasSize[]; objects?:CanvasObjects}
 export function canvasTextEditable(id:string,index:Map<string,CanvasEntry>):boolean {
  let e=index.get(id);if(!e)return false;
  while(e){const w=e.widget;if(w.states||w.repeater||w.adaptive||w.variants||w.panel?.fixed)return false;e=e.parent?index.get(e.parent):undefined;}
  return true;
 }
 export function editCanvas(page:Page,state:CanvasState):Page {
- const result=moveCanvas(page,state.moves,state.sizes),index=canvasIndex(result),seen=new Set<string>();
+ const result=moveCanvas(canvasBase(page,state.objects),state.moves,state.sizes),index=canvasIndex(result),seen=new Set<string>();
  for(const edit of state.texts){
   const key=JSON.stringify([edit.id,edit.content,edit.paragraph,edit.run]);
   if(typeof edit.text!=='string'||![edit.content,edit.paragraph,edit.run].every(n=>Number.isSafeInteger(n)&&n>=0)||seen.has(key)||!canvasTextEditable(edit.id,index))throw new Error('Invalid canvas text edit');
@@ -147,21 +148,23 @@ export function editCanvas(page:Page,state:CanvasState):Page {
 }
 export function saveCanvasState(page:Page,sourceSha256:string,state:CanvasState) {
  editCanvas(page,state);
- return {...saveCanvas(page,sourceSha256,state.moves),schema:'axurecraft-canvas@3',texts:structuredClone(state.texts),sizes:structuredClone(state.sizes??[])};
+ return {schema:'axurecraft-canvas@4',sourceSha256,pageId:page.id,baseline:JSON.stringify(page),moves:structuredClone(state.moves),texts:structuredClone(state.texts),sizes:structuredClone(state.sizes??[]),...(state.objects?{objects:structuredClone(state.objects)}:{})};
 }
 export function restoreCanvasState(json:string,page:Page,sourceSha256:string):CanvasState {
  const d=JSON.parse(json);
  if(d?.schema==='axurecraft-canvas@1')return {moves:restoreCanvas(json,page,sourceSha256),texts:[]};
- if(!['axurecraft-canvas@2','axurecraft-canvas@3'].includes(d?.schema)||!Array.isArray(d.texts))throw new Error('Invalid canvas document');
- const moves=restoreCanvas(JSON.stringify({...d,schema:'axurecraft-canvas@1'}),page,sourceSha256);
+ if(!['axurecraft-canvas@2','axurecraft-canvas@3','axurecraft-canvas@4'].includes(d?.schema)||!Array.isArray(d.texts))throw new Error('Invalid canvas document');
+ if(d.sourceSha256!==sourceSha256||d.pageId!==page.id||d.baseline!==JSON.stringify(page))throw new Error('Canvas baseline conflict');
+ const objects=d.schema==='axurecraft-canvas@4'?d.objects as CanvasObjects|undefined:undefined,base=canvasBase(page,objects);
+ const moves=restoreCanvas(JSON.stringify({...d,schema:'axurecraft-canvas@1',baseline:JSON.stringify(base)}),base,sourceSha256);
  const texts=d.texts.map((e:unknown)=>{
   if(!e||typeof e!=='object')throw new Error('Invalid canvas text edit');
   const t=e as CanvasTextEdit;
   return {id:t.id,content:t.content,paragraph:t.paragraph,run:t.run,text:t.text};
  });
- if(d.schema==='axurecraft-canvas@3'&&!Array.isArray(d.sizes))throw new Error('Invalid canvas sizes');
- const sizes=(d.schema==='axurecraft-canvas@3'?d.sizes:undefined) as CanvasSize[]|undefined;
- const state={moves,texts,...(sizes?.length?{sizes}: {})};editCanvas(page,state);return state;
+ if(['axurecraft-canvas@3','axurecraft-canvas@4'].includes(d.schema)&&!Array.isArray(d.sizes))throw new Error('Invalid canvas sizes');
+ const sizes=(['axurecraft-canvas@3','axurecraft-canvas@4'].includes(d.schema)?d.sizes:undefined) as CanvasSize[]|undefined;
+ const state={moves,texts,...(sizes?.length?{sizes}: {}),...(objects?{objects}:{})};editCanvas(page,state);return state;
 }
 
 /** Update a size transaction relative to the current view, including explicit child overrides. */

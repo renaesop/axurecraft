@@ -2,7 +2,7 @@ import {layerLocked} from './canvas-layers.ts';
 import {reorderLayers,setLayerFlag,type LayerCommand} from './canvas-layer-actions.ts';
 import {canvasBase} from './canvas-structure.ts';
 import {createCanvasObject,duplicateCanvasObjects,deleteCanvasObjects,type CanvasTool} from './canvas-objects.ts';
-import {createElement, useMemo, useEffect, useRef, useState, type ReactNode} from 'react';
+import {createElement, useMemo, useEffect, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
 import {ReactFlow, Controls, Background, NodeResizer, Handle, Position, applyNodeChanges, type Node, type Edge, type NodeProps, type EdgeProps, type NodeChange} from '@xyflow/react';
 import {selectAllCanvasObjects,arrangeSelection,translateSelection,selectionRoots,type CanvasArrange} from './canvas-selection.ts';
 import {materializePage} from './repeater-model.ts';
@@ -69,10 +69,14 @@ function graph(page:Page):{nodes:CanvasNode[];edges:CanvasEdge[]} {
  }
  return {nodes,edges};
 }
-export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
+/** In-memory history owned by the current project, never loaded from a canvas file. */
+export interface CanvasSession {history:CanvasState[];cursor:number}
+export function FlowCanvas({page,sourceSha256,initialSession,onSessionChange}:{page:Page;sourceSha256:string;initialSession?:CanvasSession;onSessionChange?:(session:CanvasSession)=>void}){
 
  const empty:CanvasState={moves:[],texts:[]};
- const [history,setHistory]=useState<CanvasState[]>([empty]),[cursor,setCursor]=useState(0);
+ const [history,setHistory]=useState<CanvasState[]>(()=>initialSession?.history??[empty]),[cursor,setCursor]=useState(()=>initialSession?.cursor??0);
+ // Publish synchronously after a committed edit, before a page switch can unmount us.
+ useLayoutEffect(()=>{onSessionChange?.({history,cursor});},[history,cursor,onSessionChange]);
  const state=history[cursor],moves=state.moves;
  const [message,setMessage]=useState(''),[revision,setRevision]=useState(0),[selected,setSelected]=useState<string[]>([]),[snap,setSnap]=useState(false),[lock,setLock]=useState(false);
  const clickSelection=useRef<string[]>([]);

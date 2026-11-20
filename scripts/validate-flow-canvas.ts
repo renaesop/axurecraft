@@ -1,3 +1,4 @@
+import {canvasPageSessionCases} from '../tests/fixtures/canvas-page-session.ts';
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import {resolve,join} from 'node:path';
@@ -19,7 +20,7 @@ const fixture=canvasResizeCase(),native=convertRp9(connectorLabelsFile()).projec
 const selectionFixture=canvasSelectionCase();selectionFixture.id='selection';selectionFixture.name='多选排列';
 const objectsFixture=canvasObjectsCase();objectsFixture.id='objects';objectsFixture.name='对象增删';
 const layersFixture=canvasLayersCase();layersFixture.id='layers';layersFixture.name='图层验证';
-project.pages=[fixture,native,selectionFixture,objectsFixture,layersFixture];const out=resolve('output/flow-canvas-check');mkdirSync(out,{recursive:true});
+project.pages=[fixture,native,selectionFixture,objectsFixture,layersFixture,...canvasPageSessionCases()];const out=resolve('output/flow-canvas-check');mkdirSync(out,{recursive:true});
 await writeFlowCanvas(project,out);
 writeFileSync(join(out,'project.json'),JSON.stringify(project,null,2));
 const browser=await chromium.launch({executablePath:process.env.CHROME_PATH??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
@@ -355,7 +356,33 @@ try{
  assert.deepEqual(JSON.parse(readFileSync(join(out,'layers-again.canvas.json'),'utf8')),JSON.parse(readFileSync(join(out,'layers.canvas.json'),'utf8')));
  await page.getByRole('button',{name:'撤销',exact:true}).click();await page.locator('[data-id="layer-blue"]').waitFor();
  await page.getByRole('button',{name:'重做',exact:true}).click();await page.locator('[data-id="layer-blue"]').waitFor({state:'detached'});
+ // Unmount pages, preserve edits and independent undo/redo histories.
+ const switchSession=async(id:string)=>{await page.getByLabel('页面',{exact:true}).selectOption(id);await page.locator('[data-object-id="entry"]').click();};
+ const setX=async(x:number)=>{await page.getByLabel('X',{exact:true}).fill(String(x));await page.getByLabel('X',{exact:true}).press('Enter');};
+ const expectX=async(x:number)=>assert.equal(await page.getByLabel('X',{exact:true}).inputValue(),String(x));
+ await switchSession('session-a');await setX(350);await setX(360);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expectX(350);
+ await switchSession('session-b');await expectX(400);await setX(450);
+ await switchSession('session-a');await expectX(350);
+ await page.getByRole('button',{name:'重做',exact:true}).click();await expectX(360);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await setX(370);
+ await switchSession('session-b');await expectX(450);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expectX(400);
+ await switchSession('session-a');await expectX(370);
+ assert.equal(await page.getByRole('button',{name:'重做',exact:true}).isDisabled(),true);
+ const sessionDownload=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();await (await sessionDownload).saveAs(join(out,'session-a.canvas.json'));
+ await page.getByRole('button',{name:'恢复原布局',exact:true}).click();await expectX(300);
+ await switchSession('session-b');await expectX(400);
+ await page.getByRole('button',{name:'重做',exact:true}).click();await expectX(450);
+ await switchSession('session-a');await expectX(300);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await expectX(370);
+ assert.equal(await page.locator('.flow-editor').count(),1);
+ await page.reload();await switchSession('session-a');await expectX(300);
+ await page.getByLabel('打开画布',{exact:true}).setInputFiles(join(out,'session-a.canvas.json'));
+ await page.getByRole('status').filter({hasText:'画布已恢复'}).waitFor();await expectX(370);
+ await switchSession('session-b');await expectX(400);
+ await switchSession('session-a');await expectX(370);
  assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
- const report={selectionShortcuts:true,layerPaintOrder:true,layerVisibility:true,layerLocks:true,layerSaveReload:true,objectCreation:true,copyGroupIds:true,deleteCascade:true,objectUndoRedo:true,objectSaveReload:true,marqueeSelection:true,multiDrag:true,allAlignments:true,equalGapDistribution:true,batchSaveReload:true,ancestorDeduplication:true,sizeInspector:true,resizeHandles:true,groupResize:true,aspectRatio:true,resizeSaveReload:true,keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
+ const report={pageSessionIsolation:true,selectionShortcuts:true,layerPaintOrder:true,layerVisibility:true,layerLocks:true,layerSaveReload:true,objectCreation:true,copyGroupIds:true,deleteCascade:true,objectUndoRedo:true,objectSaveReload:true,marqueeSelection:true,multiDrag:true,allAlignments:true,equalGapDistribution:true,batchSaveReload:true,ancestorDeduplication:true,sizeInspector:true,resizeHandles:true,groupResize:true,aspectRatio:true,resizeSaveReload:true,keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
  writeFileSync(join(out,'validation.json'),JSON.stringify(report,null,2));console.log(report);
 }finally{await browser.close();}

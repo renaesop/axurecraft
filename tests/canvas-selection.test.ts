@@ -1,7 +1,8 @@
+import {canvasSelectionKeysCase} from './fixtures/canvas-selection-keys.ts';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {canvasSelectionCase} from './fixtures/canvas-selection.ts';
-import {arrangeSelection,translateSelection,selectionRoots,type CanvasArrange} from '../src/canvas-selection.ts';
+import {selectAllCanvasObjects,arrangeSelection,translateSelection,selectionRoots,type CanvasArrange} from '../src/canvas-selection.ts';
 import {canvasIndex,editCanvas,saveCanvasState,restoreCanvasState} from '../src/flow-canvas-model.ts';
 const empty={moves:[],texts:[]},ids=['arrange-0','arrange-1','arrange-2'];
 test('all alignments use page bounds and leave input and unrelated objects unchanged',()=>{
@@ -56,4 +57,17 @@ test('alignment reconnects edges across containers and retains prior text and si
  assert.deepEqual(aligned.texts,state.texts);assert.deepEqual(aligned.sizes,state.sizes);
  const saved=saveCanvasState(page,'source',aligned);
  assert.deepEqual(saveCanvasState(page,'source',restoreCanvasState(JSON.stringify(saved),page,'source')),saved);
+});
+
+test('select-all treats containers as units, omits hidden roots and preserves locked selection',()=>{
+ const page=canvasSelectionKeysCase(),before=structuredClone(page);
+ const state={...empty,layers:{hidden:['layer-blue'],locked:['entry']}};
+ const ids=selectAllCanvasObjects(editCanvas(page,state));
+ assert.ok(ids.includes('entry'));assert.ok(ids.includes('layer-red'));
+ assert.ok(!ids.includes('group'));assert.ok(!ids.includes('start'));assert.ok(!ids.includes('layer-blue'));
+ assert.ok(ids.includes('free-end'));
+ assert.deepEqual(ids,selectionRoots(ids,canvasIndex(page)));
+ assert.throws(()=>translateSelection(page,state,ids,1,0),/Unlock/);
+ assert.deepEqual(selectAllCanvasObjects({...page,widgets:[]}),[]);
+ assert.deepEqual(page,before);
 });

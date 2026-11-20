@@ -4,7 +4,7 @@ import {canvasBase} from './canvas-structure.ts';
 import {createCanvasObject,duplicateCanvasObjects,deleteCanvasObjects,type CanvasTool} from './canvas-objects.ts';
 import {createElement, useMemo, useEffect, useRef, useState, type ReactNode} from 'react';
 import {ReactFlow, Controls, Background, NodeResizer, Handle, Position, applyNodeChanges, type Node, type Edge, type NodeProps, type EdgeProps, type NodeChange} from '@xyflow/react';
-import {arrangeSelection,translateSelection,selectionRoots,type CanvasArrange} from './canvas-selection.ts';
+import {selectAllCanvasObjects,arrangeSelection,translateSelection,selectionRoots,type CanvasArrange} from './canvas-selection.ts';
 import {materializePage} from './repeater-model.ts';
 import type {Page, Widget} from './model.ts';
 import {widgetElement, type ElementNode} from './render-tree.ts';
@@ -124,6 +124,12 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
    const target=e.target as HTMLElement;
    // Preserve native text editing and controls; commands apply only to the canvas.
    if(target.closest('input,textarea,select,button,[contenteditable=true]')||!(target===e.currentTarget||target.closest('.flow-surface')))return;
+   if((e.metaKey||e.ctrlKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='a'){
+    e.preventDefault();e.stopPropagation();setSelected(selectAllCanvasObjects(edited));return;
+   }
+   if(e.key==='Escape'&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&!e.shiftKey){
+    e.preventDefault();e.stopPropagation();setSelected([]);return;
+   }
    if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){
     e.preventDefault();e.stopPropagation();setCursor(c=>Math.max(0,Math.min(history.length-1,c+(e.shiftKey?1:-1))));return;
    }

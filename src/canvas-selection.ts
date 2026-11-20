@@ -44,3 +44,8 @@ export function arrangeSelection(page:Page,state:CanvasState,ids:string[],mode:C
  }
  const result={...state,moves:[...moves.values()]};editCanvas(page,result);return result;
 }
+
+/** Select visible top-level objects; containers remain units and locks still guard edits. */
+export function selectAllCanvasObjects(page:Page):string[]{
+ return page.widgets.filter(w=>w.css.display!=='none').map(w=>w.id);
+}

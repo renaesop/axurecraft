@@ -337,9 +337,25 @@ try{
  await page.locator('[data-id="layer-red"]').waitFor();assert.deepEqual(await pixel(),[221,0,0]);
  assert.equal(await page.locator('[data-id="layer-blue"]').count(),0);
  await page.locator('[data-object-id="layer-red"]').click();assert.equal(await page.getByLabel('X',{exact:true}).isDisabled(),true);
+ // Selection shortcuts must not alter history or the persisted document.
+ const selectedOutlineIds=()=>page.locator('[data-object-id][aria-pressed="true"]').evaluateAll(ns=>ns.map(n=>n.getAttribute('data-object-id')));
+ const expectedAll=canvasLayersCase().widgets.filter(w=>w.css.display!=='none'&&w.id!=='layer-blue').map(w=>w.id).sort();
+ for(const modifier of ['Control','Meta']){
+  await page.locator('.flow-editor').press(modifier+'+a');
+  assert.deepEqual((await selectedOutlineIds()).sort(),expectedAll);
+  await page.locator('.flow-editor').press('Escape');assert.deepEqual(await selectedOutlineIds(),[]);
+ }
+ await page.locator('[data-object-id="entry"]').click();
+ const textInput=page.locator('.flow-properties textarea').first();
+ await textInput.press(process.platform==='darwin'?'Meta+a':'Control+a');
+ assert.deepEqual(await selectedOutlineIds(),['entry']);
+ assert.equal(await textInput.evaluate(el=>(el as HTMLTextAreaElement).selectionEnd!-(el as HTMLTextAreaElement).selectionStart!),(await textInput.inputValue()).length);
+ await textInput.press('Escape');assert.deepEqual(await selectedOutlineIds(),['entry']);
  const layersAgain=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();await (await layersAgain).saveAs(join(out,'layers-again.canvas.json'));
  assert.deepEqual(JSON.parse(readFileSync(join(out,'layers-again.canvas.json'),'utf8')),JSON.parse(readFileSync(join(out,'layers.canvas.json'),'utf8')));
+ await page.getByRole('button',{name:'撤销',exact:true}).click();await page.locator('[data-id="layer-blue"]').waitFor();
+ await page.getByRole('button',{name:'重做',exact:true}).click();await page.locator('[data-id="layer-blue"]').waitFor({state:'detached'});
  assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
- const report={layerPaintOrder:true,layerVisibility:true,layerLocks:true,layerSaveReload:true,objectCreation:true,copyGroupIds:true,deleteCascade:true,objectUndoRedo:true,objectSaveReload:true,marqueeSelection:true,multiDrag:true,allAlignments:true,equalGapDistribution:true,batchSaveReload:true,ancestorDeduplication:true,sizeInspector:true,resizeHandles:true,groupResize:true,aspectRatio:true,resizeSaveReload:true,keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
+ const report={selectionShortcuts:true,layerPaintOrder:true,layerVisibility:true,layerLocks:true,layerSaveReload:true,objectCreation:true,copyGroupIds:true,deleteCascade:true,objectUndoRedo:true,objectSaveReload:true,marqueeSelection:true,multiDrag:true,allAlignments:true,equalGapDistribution:true,batchSaveReload:true,ancestorDeduplication:true,sizeInspector:true,resizeHandles:true,groupResize:true,aspectRatio:true,resizeSaveReload:true,keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
  writeFileSync(join(out,'validation.json'),JSON.stringify(report,null,2));console.log(report);
 }finally{await browser.close();}

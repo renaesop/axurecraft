@@ -1,3 +1,4 @@
+import {canvasSessionDirty,type CanvasSession} from './canvas-session.ts';
 import {layerLocked} from './canvas-layers.ts';
 import {reorderLayers,setLayerFlag,type LayerCommand} from './canvas-layer-actions.ts';
 import {canvasBase} from './canvas-structure.ts';
@@ -69,14 +70,14 @@ function graph(page:Page):{nodes:CanvasNode[];edges:CanvasEdge[]} {
  }
  return {nodes,edges};
 }
-/** In-memory history owned by the current project, never loaded from a canvas file. */
-export interface CanvasSession {history:CanvasState[];cursor:number}
+export type {CanvasSession} from './canvas-session.ts';
 export function FlowCanvas({page,sourceSha256,initialSession,onSessionChange}:{page:Page;sourceSha256:string;initialSession?:CanvasSession;onSessionChange?:(session:CanvasSession)=>void}){
 
  const empty:CanvasState={moves:[],texts:[]};
  const [history,setHistory]=useState<CanvasState[]>(()=>initialSession?.history??[empty]),[cursor,setCursor]=useState(()=>initialSession?.cursor??0);
+ const [saved,setSaved]=useState<CanvasState>(()=>initialSession?.saved??empty);
  // Publish synchronously after a committed edit, before a page switch can unmount us.
- useLayoutEffect(()=>{onSessionChange?.({history,cursor});},[history,cursor,onSessionChange]);
+ useLayoutEffect(()=>{onSessionChange?.({history,cursor,saved});},[history,cursor,saved,onSessionChange]);
  const state=history[cursor],moves=state.moves;
  const [message,setMessage]=useState(''),[revision,setRevision]=useState(0),[selected,setSelected]=useState<string[]>([]),[snap,setSnap]=useState(false),[lock,setLock]=useState(false);
  const clickSelection=useRef<string[]>([]);
@@ -111,7 +112,7 @@ export function FlowCanvas({page,sourceSha256,initialSession,onSessionChange}:{p
   const next=new Map(moves.map(m=>[m.id,m]));for(const c of positions)if(c.type==='position'&&c.position&&roots.has(c.id))next.set(c.id,{id:c.id,...c.position});
   commit({...state,moves:[...next.values()]},dragBase!==null&&state!==dragBase);
  };
- const download=()=>{const blob=new Blob([JSON.stringify(saveCanvasState(page,sourceSha256,state),null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=page.id+'.canvas.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setMessage('画布已保存');};
+ const download=()=>{const blob=new Blob([JSON.stringify(saveCanvasState(page,sourceSha256,state),null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=page.id+'.canvas.json';link.click();setSaved(state);setTimeout(()=>URL.revokeObjectURL(url),1000);setMessage('画布下载已发起');};
  const objectAction=(action:'copy'|'delete'|CanvasTool)=>{try{
   if(action==='copy'){const result=duplicateCanvasObjects(page,state,selected,()=>'canvas-'+crypto.randomUUID());commit(result.state);setSelected(result.ids);}
   else if(action==='delete'){commit(deleteCanvasObjects(page,state,selected));setSelected([]);}
@@ -146,7 +147,7 @@ export function FlowCanvas({page,sourceSha256,initialSession,onSessionChange}:{p
    const step=e.shiftKey?10:1;
    try{commit(translateSelection(page,state,selected,delta[0]*step,delta[1]*step));}catch(error){setMessage(String(error));}
   }}>
-  <div className="flow-toolbar"><strong>{page.name}</strong><button onClick={download}>保存画布</button><label>打开画布 <input aria-label="打开画布" type="file" accept=".json" onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{const next=restoreCanvasState(await file.text(),page,sourceSha256);commit(next);setRevision(r=>r+1);setMessage('画布已恢复');}catch(error){setMessage(String(error));}}}/></label><button onClick={()=>{commit(empty);setRevision(r=>r+1);setMessage('已恢复原布局');}}>恢复原布局</button>
+  <div className="flow-toolbar"><strong>{page.name}</strong><span aria-label="保存状态">{canvasSessionDirty({history,cursor,saved})?'未保存修改':'无未保存修改'}</span><button onClick={download}>保存画布</button><label>打开画布 <input aria-label="打开画布" type="file" accept=".json" onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{const next=restoreCanvasState(await file.text(),page,sourceSha256);commit(next);setSaved(next);setRevision(r=>r+1);setMessage('画布已恢复');}catch(error){setMessage(String(error));}}}/></label><button onClick={()=>{commit(empty);setRevision(r=>r+1);setMessage('已恢复原布局');}}>恢复原布局</button>
   <button disabled={cursor===0} onClick={()=>setCursor(cursor-1)}>撤销</button><button disabled={cursor===history.length-1} onClick={()=>setCursor(cursor+1)}>重做</button>
   <label><input type="checkbox" checked={snap} onChange={e=>setSnap(e.target.checked)}/>网格吸附</label><span role="status">{message}</span></div>
   <div className="flow-workspace">

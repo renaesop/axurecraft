@@ -1,3 +1,4 @@
+import {applyCanvasLayers,assertLayerEditable,type CanvasLayers} from './canvas-layers.ts';
 import {canvasBase,type CanvasObjects} from './canvas-structure.ts';
 import type {Page, Widget, CanvasPoint as Point, ConnectorGeometry} from './model.ts';
 import {connectorPath, reattachGeometry} from './connector-geometry.ts';
@@ -128,7 +129,7 @@ export function restoreCanvas(json:string,page:Page,sourceSha256:string):CanvasM
 
 /** Individual authored runs retain their original styles, links and paragraphs. */
 export interface CanvasTextEdit {id:string; content:number; paragraph:number; run:number; text:string}
-export interface CanvasState {moves:CanvasMove[]; texts:CanvasTextEdit[]; sizes?:CanvasSize[]; objects?:CanvasObjects}
+export interface CanvasState {moves:CanvasMove[]; texts:CanvasTextEdit[]; sizes?:CanvasSize[]; objects?:CanvasObjects; layers?:CanvasLayers}
 export function canvasTextEditable(id:string,index:Map<string,CanvasEntry>):boolean {
  let e=index.get(id);if(!e)return false;
  while(e){const w=e.widget;if(w.states||w.repeater||w.adaptive||w.variants||w.panel?.fixed)return false;e=e.parent?index.get(e.parent):undefined;}
@@ -144,32 +145,33 @@ export function editCanvas(page:Page,state:CanvasState):Page {
   if(!run)throw new Error('Invalid canvas text target');
   seen.add(key);run.text=edit.text;
  }
- return result;
+ return applyCanvasLayers(result,state.layers,index);
 }
 export function saveCanvasState(page:Page,sourceSha256:string,state:CanvasState) {
  editCanvas(page,state);
- return {schema:'axurecraft-canvas@4',sourceSha256,pageId:page.id,baseline:JSON.stringify(page),moves:structuredClone(state.moves),texts:structuredClone(state.texts),sizes:structuredClone(state.sizes??[]),...(state.objects?{objects:structuredClone(state.objects)}:{})};
+ return {schema:'axurecraft-canvas@5',sourceSha256,pageId:page.id,baseline:JSON.stringify(page),moves:structuredClone(state.moves),texts:structuredClone(state.texts),sizes:structuredClone(state.sizes??[]),...(state.objects?{objects:structuredClone(state.objects)}:{}),...(state.layers?{layers:structuredClone(state.layers)}:{})};
 }
 export function restoreCanvasState(json:string,page:Page,sourceSha256:string):CanvasState {
  const d=JSON.parse(json);
  if(d?.schema==='axurecraft-canvas@1')return {moves:restoreCanvas(json,page,sourceSha256),texts:[]};
- if(!['axurecraft-canvas@2','axurecraft-canvas@3','axurecraft-canvas@4'].includes(d?.schema)||!Array.isArray(d.texts))throw new Error('Invalid canvas document');
+ if(!['axurecraft-canvas@2','axurecraft-canvas@3','axurecraft-canvas@4','axurecraft-canvas@5'].includes(d?.schema)||!Array.isArray(d.texts))throw new Error('Invalid canvas document');
  if(d.sourceSha256!==sourceSha256||d.pageId!==page.id||d.baseline!==JSON.stringify(page))throw new Error('Canvas baseline conflict');
- const objects=d.schema==='axurecraft-canvas@4'?d.objects as CanvasObjects|undefined:undefined,base=canvasBase(page,objects);
+ const objects=['axurecraft-canvas@4','axurecraft-canvas@5'].includes(d.schema)?d.objects as CanvasObjects|undefined:undefined,base=canvasBase(page,objects);
  const moves=restoreCanvas(JSON.stringify({...d,schema:'axurecraft-canvas@1',baseline:JSON.stringify(base)}),base,sourceSha256);
  const texts=d.texts.map((e:unknown)=>{
   if(!e||typeof e!=='object')throw new Error('Invalid canvas text edit');
   const t=e as CanvasTextEdit;
   return {id:t.id,content:t.content,paragraph:t.paragraph,run:t.run,text:t.text};
  });
- if(['axurecraft-canvas@3','axurecraft-canvas@4'].includes(d.schema)&&!Array.isArray(d.sizes))throw new Error('Invalid canvas sizes');
- const sizes=(['axurecraft-canvas@3','axurecraft-canvas@4'].includes(d.schema)?d.sizes:undefined) as CanvasSize[]|undefined;
- const state={moves,texts,...(sizes?.length?{sizes}: {}),...(objects?{objects}:{})};editCanvas(page,state);return state;
+ if(['axurecraft-canvas@3','axurecraft-canvas@4','axurecraft-canvas@5'].includes(d.schema)&&!Array.isArray(d.sizes))throw new Error('Invalid canvas sizes');
+ const sizes=(['axurecraft-canvas@3','axurecraft-canvas@4','axurecraft-canvas@5'].includes(d.schema)?d.sizes:undefined) as CanvasSize[]|undefined;
+ const state={moves,texts,...(sizes?.length?{sizes}: {}),...(objects?{objects}:{}),...(d.schema==='axurecraft-canvas@5'&&d.layers!==undefined?{layers:d.layers as CanvasLayers}:{})};editCanvas(page,state);return state;
 }
 
 /** Update a size transaction relative to the current view, including explicit child overrides. */
 export function resizeCanvasState(page:Page,state:CanvasState,size:CanvasSize,position?:Point):CanvasState {
  const index=canvasIndex(editCanvas(page,state)),entry=index.get(size.id);
+ assertLayerEditable([size.id],state.layers,index);
  if(!entry||!canvasResizable(size.id,index))throw new Error('Read-only canvas size');
  const sx=size.width/entry.widget.width,sy=size.height/entry.widget.height;
  const descendants=new Set<string>();

@@ -1,3 +1,4 @@
+import {assertLayerEditable,reconcileLayers} from './canvas-layers.ts';
 import type {Page,Widget} from './model.ts';
 import {canvasIndex,canvasMovable,canvasResizable,moveCanvas,editCanvas,type CanvasState} from './flow-canvas-model.ts';
 import {canvasBase,staticCanvasObject} from './canvas-structure.ts';
@@ -15,10 +16,12 @@ export function createCanvasObject(page:Page,state:CanvasState,id:string,tool:Ca
  }
  const objects=state.objects??{added:[],removed:[]};
  const next={...state,objects:{...objects,added:[...objects.added,{widget}]}};
+ const base=canvasBase(page,next.objects);if(state.layers)Object.assign(next,{layers:reconcileLayers(base,state.layers,canvasIndex(base))});
  editCanvas(page,next);return next;
 }
 export function duplicateCanvasObjects(page:Page,state:CanvasState,ids:string[],fresh:()=>string):{state:CanvasState;ids:string[]} {
- const current=editCanvas(page,state),index=canvasIndex(current),roots=selectionRoots(ids,index);
+ const current=editCanvas(page,{...state,...(state.layers?{layers:{...state.layers,hidden:[]}}:{})}),index=canvasIndex(current),roots=selectionRoots(ids,index);
+ assertLayerEditable(roots,state.layers,index);
  if(!roots.length||roots.some(id=>!canvasMovable(id,index)||!staticCanvasObject(index.get(id)!.widget)))throw new Error('Unsupported canvas copy');
  const copies=roots.map(id=>({parent:index.get(id)!.parent,widget:structuredClone(index.get(id)!.widget)})),map=new Map<string,string>(),used=new Set(canvasIndex(canvasBase(page,state.objects)).keys());
  const allocate=(value:unknown):void=>{
@@ -44,6 +47,11 @@ export function duplicateCanvasObjects(page:Page,state:CanvasState,ids:string[],
  const moves=[...state.moves,...copies.map(c=>({id:c.widget.id,x:c.widget.x,y:c.widget.y}))];
  const sizes=[...state.sizes??[],...copies.filter(c=>canvasResizable(c.widget.id,relocated)).map(c=>({id:c.widget.id,width:c.widget.width,height:c.widget.height}))];
  const next={...state,moves,sizes,objects:{...objects,added:[...objects.added,...JSON.parse(JSON.stringify(copies))]}};
+ const base=canvasBase(page,next.objects);if(state.layers){
+  const layers=reconcileLayers(base,state.layers,canvasIndex(base))!;
+  if(layers.hidden)layers.hidden.push(...(state.layers.hidden??[]).filter(id=>map.has(id)).map(id=>map.get(id)!));
+  Object.assign(next,{layers});
+ }
  editCanvas(page,next);return {state:next,ids:copies.map(c=>c.widget.id)};
 }
 export function deleteCanvasObjects(page:Page,state:CanvasState,ids:string[]):CanvasState {
@@ -52,9 +60,11 @@ export function deleteCanvasObjects(page:Page,state:CanvasState,ids:string[]):Ca
  const collect=(w:Widget)=>{deleted.add(w.id);for(const child of w.children??[])collect(child);};
  for(const id of roots){const w=index.get(id)!.widget;if(!staticCanvasObject(w)||(!w.connection&&!canvasMovable(id,index)))throw new Error('Read-only canvas deletion');collect(w);}
  for(const {widget:w} of index.values())if(w.connection&&[w.connection.start.target,w.connection.end.target].some(id=>id&&deleted.has(id)))collect(w);
+ assertLayerEditable([...deleted],state.layers,index);
  const objects=state.objects??{added:[],removed:[]};
  // Remove descendants through their root; do not record table cells as independent deletions.
  const removed=selectionRoots([...deleted],index);
  const next={...state,moves:state.moves.filter(e=>!deleted.has(e.id)),texts:state.texts.filter(e=>!deleted.has(e.id)),sizes:(state.sizes??[]).filter(e=>!deleted.has(e.id)),objects:{...objects,removed:[...new Set([...objects.removed,...removed])]}};
+ const base=canvasBase(page,next.objects);if(state.layers)Object.assign(next,{layers:reconcileLayers(base,state.layers,canvasIndex(base))});
  editCanvas(page,next);return next;
 }

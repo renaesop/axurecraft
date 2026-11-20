@@ -20,7 +20,7 @@ npm run convert -- prototype.rp output/prototype
 npx tsx src/flow-canvas-export.ts output/prototype/project.json output/prototype/canvas
 ```
 
-打开 `output/prototype/canvas/index.html`。图片资源从输入 JSON 所在目录读取并复制。入口包含全部页面，切换页面前请保存修改。生成的 JS、CSS、资源在本地，无需在线编辑器或服务端渲染。
+打开 `output/prototype/canvas/index.html`。图片资源从输入 JSON 所在目录读取并复制。入口包含全部页面，切换页面保留内存中的修改；刷新或关闭前请逐页保存。生成的 JS、CSS、资源在本地，无需在线编辑器或服务端渲染。
 
 ## 本阶段支持什么
 
@@ -53,7 +53,7 @@ npx tsx src/flow-canvas-export.ts output/prototype/project.json output/prototype
 
 拖动始终相对不可变原始页面计算，避免连续鼠标移动积累拐点漂移。父链坐标用于组内/跨组换算；原始目标/端口引用始终保留。渲染库为自由端点使用的不可见锚点不会写入保存文档。
 
-画布文档 `axurecraft-canvas@5` 包含 `sourceSha256`、`pageId`、原始页面的精确序列化快照、按 Widget ID 记录的位置及按内容/段落/文本段索引记录的文字修改。兼容打开旧版 `axurecraft-canvas@1` 的位置文档和 @2 的文字文档；旧编辑器不会误读新版文件。基线任一字段变化都拒绝恢复，这是保守冲突策略，尚不尝试合并新版本 RP。文件不会覆盖 `project.json`；未修改对象及来源保留在原始模型，编辑结果可以由 `editCanvas` 重建。撤销历史仅保存在当前页面的内存中，切页前仍须保存。
+画布文档 `axurecraft-canvas@5` 包含 `sourceSha256`、`pageId`、原始页面的精确序列化快照、按 Widget ID 记录的位置及按内容/段落/文本段索引记录的文字修改。兼容打开旧版 `axurecraft-canvas@1` 的位置文档和 @2 的文字文档；旧编辑器不会误读新版文件。基线任一字段变化都拒绝恢复，这是保守冲突策略，尚不尝试合并新版本 RP。文件不会覆盖 `project.json`；未修改对象及来源保留在原始模型，编辑结果可以由 `editCanvas` 重建。编辑结果及撤销/重做历史按页面保存在当前窗口内存中，切页后返回仍可继续。刷新或关闭前仍须逐页保存。
 
 ## 回归
 
@@ -127,3 +127,9 @@ tests/fixtures/canvas-layers.ts 使用原创重叠色块；浏览器测试比较
 ### 选择快捷键
 
 画布获得焦点时，Ctrl/Cmd+A 选择当前页可见的顶层对象，组和表格作为整体，包含连接线；Escape 清空选择。隐藏对象不纳入，锁定对象可以选择，但移动、删除等编辑仍受锁定保护。输入框、文本域和表单控件保留原生键盘行为。选择不写入撤销历史或画布文件。
+
+### 切页保留编辑（#30）
+
+页面切换仅挂载当前画布，但按页保留完整编辑历史及撤销游标，包括坐标、文本、尺寸、对象和图层修改。两个页面即使有相同对象 ID 也不会串用编辑状态。恢复原布局只影响当前页，并可撤销；从画布文件打开的状态同样在切页后保留。
+
+这不是自动保存：刷新/关闭窗口会清空内存，请逐页下载画布文件。选择、缩放/平移和网格等临时界面设置在切页后重置。跨页复制、新增/删除页面及项目级持久化仍未实现。tests/fixtures/canvas-page-session.ts 和浏览器回归覆盖双页隔离、撤销/重做与分支历史、恢复原布局及下载后重新打开。

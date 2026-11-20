@@ -25,6 +25,7 @@ await writeFlowCanvas(project,out);
 writeFileSync(join(out,'project.json'),JSON.stringify(project,null,2));
 const browser=await chromium.launch({executablePath:process.env.CHROME_PATH??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
 const page=await browser.newPage({viewport:{width:1600,height:1100},acceptDownloads:true}),errors:string[]=[];
+const acceptDialog=async(dialog:import('playwright-core').Dialog)=>{await dialog.accept();};page.on('dialog',acceptDialog);
 page.on('pageerror',e=>errors.push(e.message));
 const externalRequests:string[]=[];page.on('request',r=>{if(/^https?:/.test(r.url()))externalRequests.push(r.url());});
 await page.addInitScript(()=>{(window as any).__canvasRoots=[];(window as any).__REACT_DEVTOOLS_GLOBAL_HOOK__={supportsFiber:true,inject(){return 1;},onCommitFiberRoot(_id:number,root:any){(window as any).__canvasRoots=[root];},onCommitFiberUnmount(){},onPostCommitFiberRoot(){}};});
@@ -382,7 +383,29 @@ try{
  await page.getByRole('status').filter({hasText:'画布已恢复'}).waitFor();await expectX(370);
  await switchSession('session-b');await expectX(400);
  await switchSession('session-a');await expectX(370);
+ const unloadBlocked=()=>page.evaluate(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;});
+ await setX(380);await switchSession('session-b');
+ assert.equal(await unloadBlocked(),true,'inactive page changes must block unload');
+ assert.equal(await page.getByLabel('保存状态',{exact:true}).textContent(),'无未保存修改');
+ // Cancel a real reload while only the inactive page is dirty.
+ page.off('dialog',acceptDialog);
+ const cancelledDialog=page.waitForEvent('dialog');
+ const cancelledReload=page.reload().catch(()=>null);
+ const dialog=await cancelledDialog;assert.equal(dialog.type(),'beforeunload');await dialog.dismiss();await cancelledReload;
+ await expectX(400);await switchSession('session-a');await expectX(380);
+ assert.equal(await page.getByLabel('保存状态',{exact:true}).textContent(),'未保存修改');
+ const checkpointDownload=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();await (await checkpointDownload).saveAs(join(out,'checkpoint.canvas.json'));
+ assert.equal(await unloadBlocked(),false);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();assert.equal(await unloadBlocked(),true);
+ await page.getByRole('button',{name:'重做',exact:true}).click();assert.equal(await unloadBlocked(),false);
+ await setX(390);
+ const acceptedDialog=page.waitForEvent('dialog');const acceptedReload=page.reload();
+ const confirm=await acceptedDialog;assert.equal(confirm.type(),'beforeunload');await confirm.accept();await acceptedReload;
+ page.on('dialog',acceptDialog);await switchSession('session-a');await expectX(300);assert.equal(await unloadBlocked(),false);
+ await page.getByLabel('打开画布',{exact:true}).setInputFiles(join(out,'checkpoint.canvas.json'));
+ await page.getByRole('status').filter({hasText:'画布已恢复'}).waitFor();await expectX(380);assert.equal(await unloadBlocked(),false);
+
  assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
- const report={pageSessionIsolation:true,selectionShortcuts:true,layerPaintOrder:true,layerVisibility:true,layerLocks:true,layerSaveReload:true,objectCreation:true,copyGroupIds:true,deleteCascade:true,objectUndoRedo:true,objectSaveReload:true,marqueeSelection:true,multiDrag:true,allAlignments:true,equalGapDistribution:true,batchSaveReload:true,ancestorDeduplication:true,sizeInspector:true,resizeHandles:true,groupResize:true,aspectRatio:true,resizeSaveReload:true,keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
+ const report={unsavedWarning:true,pageSessionIsolation:true,selectionShortcuts:true,layerPaintOrder:true,layerVisibility:true,layerLocks:true,layerSaveReload:true,objectCreation:true,copyGroupIds:true,deleteCascade:true,objectUndoRedo:true,objectSaveReload:true,marqueeSelection:true,multiDrag:true,allAlignments:true,equalGapDistribution:true,batchSaveReload:true,ancestorDeduplication:true,sizeInspector:true,resizeHandles:true,groupResize:true,aspectRatio:true,resizeSaveReload:true,keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
  writeFileSync(join(out,'validation.json'),JSON.stringify(report,null,2));console.log(report);
 }finally{await browser.close();}

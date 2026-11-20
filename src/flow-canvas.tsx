@@ -1,3 +1,5 @@
+import {layerLocked} from './canvas-layers.ts';
+import {reorderLayers,setLayerFlag,type LayerCommand} from './canvas-layer-actions.ts';
 import {canvasBase} from './canvas-structure.ts';
 import {createCanvasObject,duplicateCanvasObjects,deleteCanvasObjects,type CanvasTool} from './canvas-objects.ts';
 import {createElement, useMemo, useEffect, useRef, useState, type ReactNode} from 'react';
@@ -90,9 +92,9 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
   try{commit(resizeCanvasState(page,state,{id,width:p.width,height:p.height},p.x!==undefined&&p.y!==undefined?{x:p.x,y:p.y}:undefined),dragBase!==null&&state!==dragBase);}
   catch(e){setMessage(String(e));}
  };
- const batchMovable=!selected.length||selectionRoots(selected.filter(id=>index.has(id)),index).every(id=>canvasMovable(id,index));
+ const batchMovable=!selected.length||selectionRoots(selected.filter(id=>index.has(id)),index).every(id=>canvasMovable(id,index)&&!layerLocked(id,state.layers,index));
  const previousById=new Map(nodeMeta.map(n=>[n.id,n]));
- const nodes=view.nodes.map(n=>{const previous=previousById.get(n.id);return {...n,draggable:n.draggable&&(!selected.includes(n.id)||batchMovable),data:{...n.data,baseline:baseline.get(n.id)?.widget,resizable:selected.length===1&&canvasResizable(n.id,index),lock,onResize:resize,onResizeStart:()=>setDragBase(state),onResizeEnd:()=>setDragBase(null)},measured:previous?.measured,selected:selected.includes(n.id),dragging:previous?.dragging};});
+ const nodes=view.nodes.map(n=>{const previous=previousById.get(n.id);return {...n,draggable:n.draggable&&!layerLocked(n.id,state.layers,index)&&(!selected.includes(n.id)||batchMovable),data:{...n.data,baseline:baseline.get(n.id)?.widget,resizable:selected.length===1&&canvasResizable(n.id,index)&&!layerLocked(n.id,state.layers,index),lock,onResize:resize,onResizeStart:()=>setDragBase(state),onResizeEnd:()=>setDragBase(null)},measured:previous?.measured,selected:selected.includes(n.id),dragging:previous?.dragging};});
  const changes=(changes:NodeChange<CanvasNode>[])=>{
   setNodeMeta(applyNodeChanges(changes,nodes));
   const selectionChanges=changes.filter(c=>c.type==='select');
@@ -101,6 +103,7 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
   const positions=changes.filter(c=>c.type==='position').filter(c=>c.position);
   if(!positions.length)return;
   const roots=new Set(selectionRoots(positions.map(c=>c.id),index));
+  if([...roots].some(id=>layerLocked(id,state.layers,index))){setMessage('请先解锁对象或其父子项');return;}
   const next=new Map(moves.map(m=>[m.id,m]));for(const c of positions)if(c.type==='position'&&c.position&&roots.has(c.id))next.set(c.id,{id:c.id,...c.position});
   commit({...state,moves:[...next.values()]},dragBase!==null&&state!==dragBase);
  };
@@ -110,10 +113,13 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
   else if(action==='delete'){commit(deleteCanvasObjects(page,state,selected));setSelected([]);}
   else{const id='canvas-'+crypto.randomUUID();commit(createCanvasObject(page,state,id,action));setSelected([id]);}
  }catch(e){setMessage(String(e));}};
+ const layerAction=(command:LayerCommand|'hide'|'show'|'lock'|'unlock')=>{try{
+  commit(command==='hide'||command==='show'?setLayerFlag(page,state,selected,'hidden',command==='hide'):command==='lock'||command==='unlock'?setLayerFlag(page,state,selected,'locked',command==='lock'):reorderLayers(page,state,selected,command));
+ }catch(e){setMessage(String(e));}};
  const active=selected.length===1?index.get(selected[0])?.widget:undefined;
  const choose=(id:string,add:boolean)=>setSelected(previous=>add?previous.includes(id)?previous.filter(x=>x!==id):[...previous,id]:[id]);
  const arrange=(mode:CanvasArrange)=>{try{commit(arrangeSelection(page,state,selected,mode));}catch(e){setMessage(String(e));}};
- const outline=(widgets:Widget[]):ReactNode=><ul>{widgets.map(w=><li key={w.id}><button data-object-id={w.id} aria-pressed={selected.includes(w.id)} onClick={e=>choose(w.id,e.shiftKey||e.metaKey||e.ctrlKey)}>{w.name||w.id}</button>{w.children?.length?outline(w.children):null}</li>)}</ul>;
+ const outline=(widgets:Widget[]):ReactNode=><ul>{widgets.map(w=><li key={w.id}><button data-object-id={w.id} aria-pressed={selected.includes(w.id)} onClick={e=>choose(w.id,e.shiftKey||e.metaKey||e.ctrlKey)}>{w.name||w.id}{state.layers?.locked?.includes(w.id)?' 🔒':''}{state.layers?.hidden?.includes(w.id)?'（隐藏）':''}</button>{w.children?.length?outline(w.children):null}</li>)}</ul>;
  return <div className="flow-editor" tabIndex={0} onPointerDownCapture={()=>{clickSelection.current=selected;}} onKeyDownCapture={e=>{
    const target=e.target as HTMLElement;
    // Preserve native text editing and controls; commands apply only to the canvas.
@@ -137,22 +143,24 @@ export function FlowCanvas({page,sourceSha256}:{page:Page;sourceSha256:string}){
   <aside className="flow-outline" aria-label="对象目录">
    {([['text','新增文字'],['rectangle','新增矩形'],['ellipse','新增椭圆'],['decision','新增判断'],['button','新增按钮']] as [CanvasTool,string][]).map(([tool,label])=><button key={tool} onClick={()=>objectAction(tool)}>{label}</button>)}
    <button disabled={!selected.length} onClick={()=>objectAction('copy')}>复制对象</button><button disabled={!selected.length} onClick={()=>objectAction('delete')}>删除对象</button>
-   {outline(base.widgets)}</aside>
+   {outline(edited.widgets)}</aside>
   <div className="flow-surface" style={{background:page.background}}>
    <ReactFlow key={revision} nodes={nodes} edges={view.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={changes} onNodeClick={(e,n)=>{const previous=clickSelection.current;if(e.shiftKey||e.metaKey||e.ctrlKey)setSelected(previous.includes(n.id)?previous.filter(id=>id!==n.id):[...previous,n.id]);else setSelected([n.id]);}} onNodeDragStart={()=>setDragBase(state)} onNodeDragStop={()=>setDragBase(null)} onSelectionDragStart={()=>setDragBase(state)} onSelectionDragStop={()=>setDragBase(null)} onPaneClick={()=>setSelected([])} multiSelectionKeyCode={['Shift','Meta','Control']} snapToGrid={snap} snapGrid={[10,10]} defaultViewport={{x:0,y:0,zoom:1}} minZoom={0.1} maxZoom={4} nodeDragThreshold={0} nodesConnectable={false} deleteKeyCode={null} elevateNodesOnSelect={false} elevateEdgesOnSelect={false} zIndexMode="manual" onError={(_code,message)=>setMessage(message)}><Background gap={10}/><Controls showInteractive={false}/></ReactFlow>
   </div>
   <aside className="flow-properties" aria-label="属性">
+   {!!selected.length&&<div aria-label="图层操作">{([['front','置顶'],['back','置底'],['forward','上移一层'],['backward','下移一层'],['hide','隐藏对象'],['show','取消隐藏'],['lock','锁定对象'],['unlock','解锁对象']] as const).map(([command,label])=><button key={command} onClick={()=>layerAction(command)}>{label}</button>)}</div>}
+   {selected.some(id=>layerLocked(id,state.layers,index))&&<p>对象或其父子项已锁定，请在目录中选择并解锁。</p>}
    {selected.length>1&&<><p>已选择 {selected.length} 个对象</p><p>按 Shift / Ctrl / Cmd 点击增减选择；Shift 拖动空白处框选。方向键批量移动。</p>
     {([['left','左对齐'],['center','水平居中'],['right','右对齐'],['top','顶对齐'],['middle','垂直居中'],['bottom','底对齐'],['horizontal','水平等距'],['vertical','垂直等距']] as [CanvasArrange,string][]).map(([mode,label])=><button key={mode} onClick={()=>arrange(mode)}>{label}</button>)}
    </>}
    {active?<><strong>{active.name||active.id}</strong>
    <p>坐标相对父容器</p>
-   {(['x','y'] as const).map(axis=><label key={axis}>{axis.toUpperCase()}<input aria-label={axis.toUpperCase()} type="number" disabled={!canvasMovable(active.id,index)} key={active.id+':'+active[axis]} defaultValue={active[axis]} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}} onBlur={e=>{const n=e.target.valueAsNumber;e.target.value=String(active[axis]);if(!Number.isFinite(n))return;const next=new Map(moves.map(m=>[m.id,m]));next.set(active.id,{id:active.id,x:active.x,y:active.y,[axis]:n});commit({...state,moves:[...next.values()]});}}/></label>)}
-   {(['width','height'] as const).map(axis=><label key={axis}>{axis==='width'?'W':'H'}<input aria-label={axis==='width'?'W':'H'} type="number" min={1} disabled={!canvasResizable(active.id,index)} key={active.id+':'+active[axis]} defaultValue={active[axis]} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}} onBlur={e=>{const n=e.target.valueAsNumber;e.target.value=String(active[axis]);if(!Number.isFinite(n)||n<1){setMessage('尺寸必须大于等于 1');return;}resize(active.id,{width:axis==='width'?n:lock?active.width*n/active.height:active.width,height:axis==='height'?n:lock?active.height*n/active.width:active.height});}}/></label>)}
+   {(['x','y'] as const).map(axis=><label key={axis}>{axis.toUpperCase()}<input aria-label={axis.toUpperCase()} type="number" disabled={!canvasMovable(active.id,index)||layerLocked(active.id,state.layers,index)} key={active.id+':'+active[axis]} defaultValue={active[axis]} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}} onBlur={e=>{const n=e.target.valueAsNumber;e.target.value=String(active[axis]);if(!Number.isFinite(n))return;const next=new Map(moves.map(m=>[m.id,m]));next.set(active.id,{id:active.id,x:active.x,y:active.y,[axis]:n});commit({...state,moves:[...next.values()]});}}/></label>)}
+   {(['width','height'] as const).map(axis=><label key={axis}>{axis==='width'?'W':'H'}<input aria-label={axis==='width'?'W':'H'} type="number" min={1} disabled={!canvasResizable(active.id,index)||layerLocked(active.id,state.layers,index)} key={active.id+':'+active[axis]} defaultValue={active[axis]} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}} onBlur={e=>{const n=e.target.valueAsNumber;e.target.value=String(active[axis]);if(!Number.isFinite(n)||n<1){setMessage('尺寸必须大于等于 1');return;}resize(active.id,{width:axis==='width'?n:lock?active.width*n/active.height:active.width,height:axis==='height'?n:lock?active.height*n/active.width:active.height});}}/></label>)}
    <label><input type="checkbox" checked={lock} onChange={e=>setLock(e.target.checked)}/>锁定宽高比</label>
    {!canvasResizable(active.id,index)&&<p>此对象暂不支持尺寸编辑</p>}
    {!canvasMovable(active.id,index)&&<p>此对象的位置为只读</p>}
-   {active.content.flatMap((c,ci)=>c.kind==='text'?c.paragraphs.flatMap((p,pi)=>p.runs.map((run,ri)=><label key={ci+':'+pi+':'+ri}>文字 {ci+1}.{pi+1}.{ri+1}<textarea aria-label={'文字 '+(ci+1)+'.'+(pi+1)+'.'+(ri+1)} disabled={!canvasTextEditable(active.id,index)} value={run.text} onChange={e=>{const edit={id:active.id,content:ci,paragraph:pi,run:ri,text:e.target.value};commit({...state,texts:[...state.texts.filter(t=>!(t.id===edit.id&&t.content===ci&&t.paragraph===pi&&t.run===ri)),edit]});}}/></label>)):[])}
+   {active.content.flatMap((c,ci)=>c.kind==='text'?c.paragraphs.flatMap((p,pi)=>p.runs.map((run,ri)=><label key={ci+':'+pi+':'+ri}>文字 {ci+1}.{pi+1}.{ri+1}<textarea aria-label={'文字 '+(ci+1)+'.'+(pi+1)+'.'+(ri+1)} disabled={!canvasTextEditable(active.id,index)||layerLocked(active.id,state.layers,index)} value={run.text} onChange={e=>{const edit={id:active.id,content:ci,paragraph:pi,run:ri,text:e.target.value};commit({...state,texts:[...state.texts.filter(t=>!(t.id===edit.id&&t.content===ci&&t.paragraph===pi&&t.run===ri)),edit]});}}/></label>)):[])}
    </>:<p>选择画布对象或目录项后编辑。拖动对象移动，拖动空白处平移，滚轮缩放。</p>}
   </aside>
   </div>

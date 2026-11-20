@@ -1,3 +1,4 @@
+import {assertLayerEditable} from './canvas-layers.ts';
 import type {Page} from './model.ts';
 import {canvasIndex,canvasMovable,editCanvas,type CanvasEntry,type CanvasState} from './flow-canvas-model.ts';
 
@@ -10,6 +11,7 @@ export function selectionRoots(ids:string[],index:Map<string,CanvasEntry>):strin
 }
 function selection(page:Page,state:CanvasState,ids:string[]){
  const index=canvasIndex(editCanvas(page,state)),roots=selectionRoots(ids,index);
+ assertLayerEditable(roots,state.layers,index);
  if(!roots.length||roots.some(id=>!canvasMovable(id,index)))throw new Error('Selection contains read-only objects');
  return {index,roots};
 }

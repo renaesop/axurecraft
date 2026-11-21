@@ -1,3 +1,4 @@
+import {canvasEmptyProject} from '../tests/fixtures/canvas-empty.ts';
 import {canvasPageSessionCases} from '../tests/fixtures/canvas-page-session.ts';
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
@@ -22,6 +23,8 @@ const objectsFixture=canvasObjectsCase();objectsFixture.id='objects';objectsFixt
 const layersFixture=canvasLayersCase();layersFixture.id='layers';layersFixture.name='图层验证';
 project.pages=[fixture,native,selectionFixture,objectsFixture,layersFixture,...canvasPageSessionCases()];const out=resolve('output/flow-canvas-check');mkdirSync(out,{recursive:true});
 await writeFlowCanvas(project,out);
+await writeFlowCanvas(canvasEmptyProject(),join(out,'empty'));
+await writeFlowCanvas(canvasEmptyProject(true),join(out,'blank'));
 writeFileSync(join(out,'project.json'),JSON.stringify(project,null,2));
 const browser=await chromium.launch({executablePath:process.env.CHROME_PATH??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
 const page=await browser.newPage({viewport:{width:1600,height:1100},acceptDownloads:true}),errors:string[]=[];
@@ -405,7 +408,21 @@ try{
  await page.getByLabel('打开画布',{exact:true}).setInputFiles(join(out,'checkpoint.canvas.json'));
  await page.getByRole('status').filter({hasText:'画布已恢复'}).waitFor();await expectX(380);assert.equal(await unloadBlocked(),false);
 
+ await page.goto(pathToFileURL(join(out,'empty/index.html')).href);
+ await page.getByRole('status').waitFor();
+ assert.equal(await page.getByRole('status').count(),1,'empty project must render a status instead of crashing');
+ assert.equal(await page.getByRole('status').textContent(),'项目中没有页面');
+ assert.equal(await page.locator('.flow-editor,select').count(),0);
+ await page.reload();await page.getByRole('status').waitFor();
+ await page.goto(pathToFileURL(join(out,'blank/index.html')).href);
+ await page.getByRole('button',{name:'新增矩形',exact:true}).click();
+ assert.equal(await page.locator('[data-object-id]').count(),1);
+ await page.getByRole('button',{name:'撤销',exact:true}).click();assert.equal(await page.locator('[data-object-id]').count(),0);
+ await page.getByRole('button',{name:'重做',exact:true}).click();assert.equal(await page.locator('[data-object-id]').count(),1);
+ const blankDownload=page.waitForEvent('download');await page.getByRole('button',{name:'保存画布',exact:true}).click();await (await blankDownload).saveAs(join(out,'blank.canvas.json'));
+ await page.reload();await page.getByLabel('打开画布',{exact:true}).setInputFiles(join(out,'blank.canvas.json'));
+ await page.getByRole('status').filter({hasText:'画布已恢复'}).waitFor();assert.equal(await page.locator('[data-object-id]').count(),1);
  assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
- const report={unsavedWarning:true,pageSessionIsolation:true,selectionShortcuts:true,layerPaintOrder:true,layerVisibility:true,layerLocks:true,layerSaveReload:true,objectCreation:true,copyGroupIds:true,deleteCascade:true,objectUndoRedo:true,objectSaveReload:true,marqueeSelection:true,multiDrag:true,allAlignments:true,equalGapDistribution:true,batchSaveReload:true,ancestorDeduplication:true,sizeInspector:true,resizeHandles:true,groupResize:true,aspectRatio:true,resizeSaveReload:true,keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
+ const report={emptyProjects:true,blankPageEditing:true,unsavedWarning:true,pageSessionIsolation:true,selectionShortcuts:true,layerPaintOrder:true,layerVisibility:true,layerLocks:true,layerSaveReload:true,objectCreation:true,copyGroupIds:true,deleteCascade:true,objectUndoRedo:true,objectSaveReload:true,marqueeSelection:true,multiDrag:true,allAlignments:true,equalGapDistribution:true,batchSaveReload:true,ancestorDeduplication:true,sizeInspector:true,resizeHandles:true,groupResize:true,aspectRatio:true,resizeSaveReload:true,keyboardNudge:true,keyboardUndoRedo:true,inputKeyboardIsolation:true,textEditing:true,undoRedo:true,positionInspector:true,wholeCanvasObjects:expected.size,reactComponents:true,initialGeometry:true,dragNode:true,dragGroup:true,freeEnd:true,isolatedObject:true,tableCells:4,saveReload:true,conflictRejected:true,nativeLabels:true,hiddenGroups:true,externalFramesInert:true,selectValues:true,multipleSelections:true,errors};
  writeFileSync(join(out,'validation.json'),JSON.stringify(report,null,2));console.log(report);
 }finally{await browser.close();}
